@@ -167,6 +167,8 @@ rtp_error_t uvgrtp::reception_flow::start(std::shared_ptr<uvgrtp::socket> socket
 
 #endif
     active_ = true;
+    UVG_LOG_DEBUG("reception_flow::start() active=true; poll_timeout_ms=%d payload_size=%zu buffer_elems=%zu",
+        poll_timeout_ms_, payload_size_, ring_buffer_.size());
     return RTP_ERROR::RTP_OK;
 }
 
@@ -176,6 +178,7 @@ rtp_error_t uvgrtp::reception_flow::stop()
     if (!active_) {
         return RTP_OK;
     }
+    UVG_LOG_DEBUG("reception_flow::stop() called; notifying threads and joining. active=%d", active_);
     should_stop_ = true;
     process_cond_.notify_all();
 
@@ -188,9 +191,9 @@ rtp_error_t uvgrtp::reception_flow::stop()
     {
         processor_->join();
     }
-
     clear_frames();
     active_ = false;
+    UVG_LOG_DEBUG("reception_flow::stop() completed; active=false");
     return RTP_OK;
 }
 
@@ -460,10 +463,14 @@ void uvgrtp::reception_flow::receiver(std::shared_ptr<uvgrtp::socket> socket)
         }
 
         if (pfds->revents & POLLIN) {
+            ssize_t last_w = last_ring_write_index_.load();
+            ssize_t read_i = ring_read_index_.load();
+            UVG_LOG_DEBUG("receiver: POLLIN; last_write=%lli read_index=%lli handlers=%zu hooks=%zu should_stop=%d",
+                last_w, read_i, packet_handlers_.size(), hooks_.size(), should_stop_);
             // we write as many packets as socket has in the buffer
             while (!should_stop_)
             {
-                ssize_t next_write_index = next_buffer_location(last_ring_write_index_);
+                ssize_t next_write_index = next_buffer_location(last_ring_write_index_.load());
 
                 rtp_error_t ret = socket->recvfrom(ring_buffer_[next_write_index].data, payload_size_,
                     MSG_DONTWAIT, &ring_buffer_[next_write_index].read);
@@ -511,17 +518,21 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
         }
 
         // process all available reads in one go
-        while (ring_read_index_ != last_ring_write_index_)
+        while (ring_read_index_.load() != last_ring_write_index_.load())
         {
             // first update the read location
-            ring_read_index_ = next_buffer_location(ring_read_index_);
+            ring_read_index_ = next_buffer_location(ring_read_index_.load());
 
-            if (ring_buffer_[ring_read_index_].read > 0)
+            ssize_t ridx = ring_read_index_.load();
+
+            if (ring_buffer_[ridx].read > 0)
             {
-                if (ring_buffer_[ring_read_index_].read < 12)
+                UVG_LOG_DEBUG("process_packet: processing buffer idx=%lli read=%li last_write=%lli handlers=%zu hooks=%zu",
+                    ridx, ring_buffer_[ridx].read, last_ring_write_index_.load(), packet_handlers_.size(), hooks_.size());
+                if (ring_buffer_[ridx].read < 12)
                 {
-                    UVG_LOG_DEBUG("Ignoring packet: too small to be RTP/RTCP (size: %zu)", ring_buffer_[ring_read_index_].read);
-                    ring_buffer_[ring_read_index_].read = 0;
+                    UVG_LOG_DEBUG("Ignoring packet: too small to be RTP/RTCP (size: %zu)", ring_buffer_[ridx].read);
+                    ring_buffer_[ridx].read = 0;
                     ++processed_packets;
                     continue;
                 }
@@ -538,7 +549,7 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                  *    not needed if RTCP is enabled. 
                  * 5. After determining the correct protocol, hand out the packet to the correct handler(s) if it exists. */
                 
-                uint8_t* ptr = (uint8_t*)ring_buffer_[ring_read_index_].data;
+                uint8_t* ptr = (uint8_t*)ring_buffer_[ridx].data;
                 //sockaddr_in from = ring_buffer_[ring_read_index_].from;
                 //sockaddr_in6 from6 = ring_buffer_[ring_read_index_].from6;
                 uint32_t rtp_ssrc = ntohl(*(uint32_t*)&ptr[8]);
@@ -559,7 +570,7 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                     /* Socket multiplexing: RTP/ZRTP packet */
                     handlers = &packet_handlers_[rtp_ssrc];
                 }
-                size_t size = (size_t)ring_buffer_[ring_read_index_].read;
+                size_t size = (size_t)ring_buffer_[ridx].read;
                 uint8_t version = (*(uint8_t*)&ptr[0] >> 6) & 0x3;
 
                 if (handlers != nullptr) {
@@ -651,17 +662,17 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                     }*/
                 }
                 // to make sure we don't process this packet again
-                ring_buffer_[ring_read_index_].read = 0;
+                ring_buffer_[ridx].read = 0;
                 ++processed_packets;
             }
             else
             {
 #ifndef NDEBUG 
 #ifndef __RTP_SILENT__
-                ssize_t write = last_ring_write_index_;
-                ssize_t read = ring_read_index_;
+                ssize_t write = last_ring_write_index_.load();
+                ssize_t read = ring_read_index_.load();
                 UVG_LOG_DEBUG("Found invalid frame in read buffer: %li. R: %lli, W: %lli", 
-                    ring_buffer_[ring_read_index_].read, read, write);
+                    ring_buffer_[read].read, read, write);
 #endif
 #endif
             }
@@ -691,7 +702,7 @@ ssize_t uvgrtp::reception_flow::next_buffer_location(ssize_t current_location)
 void uvgrtp::reception_flow::increase_buffer_size(ssize_t next_write_index)
 {
     // create new buffer spaces if the process/read hasn't freed any spots on the ring buffer
-    if (next_write_index == ring_read_index_)
+    if (next_write_index == ring_read_index_.load())
     {
         // increase the buffer size by 25%
         ssize_t increase = ring_buffer_.size() / 4;
@@ -706,7 +717,7 @@ void uvgrtp::reception_flow::increase_buffer_size(ssize_t next_write_index)
         }
 
         // this works, because we have just added increase amount of spaces
-        ring_read_index_ += increase;
+        ring_read_index_.fetch_add(increase);
     }
 }
 

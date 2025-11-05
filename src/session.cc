@@ -240,6 +240,9 @@ rtp_error_t uvgrtp::session::destroy_stream(uvgrtp::media_stream *stream)
 {
     if (!stream)
         return RTP_INVALID_VALUE;
+    UVG_LOG_DEBUG("session::destroy_stream called for stream ptr %p. current stream count: %zu", (void*)stream, pimpl_->streams_.size());
+    UVG_LOG_INFO("destroy_stream: stream=%p streams=%zu", (void*)stream, pimpl_->streams_.size());
+
     /* Find the stream entry by pointer equality without touching impl_ */
     pimpl_->session_mtx_.lock();
     auto it = std::find_if(pimpl_->streams_.begin(), pimpl_->streams_.end(),
@@ -251,16 +254,26 @@ rtp_error_t uvgrtp::session::destroy_stream(uvgrtp::media_stream *stream)
     }
 
     uvgrtp::media_stream* ms = it->second;
+    uint32_t removed_key = it->first;
     pimpl_->streams_.erase(it);
     pimpl_->session_mtx_.unlock();
+
+    UVG_LOG_DEBUG("session::destroy_stream removed key %u ptr %p; streams remaining: %zu", removed_key, (void*)ms, pimpl_->streams_.size());
+    UVG_LOG_INFO("destroy_stream: removed key=%u ptr=%p remaining=%zu", removed_key, (void*)ms, pimpl_->streams_.size());
 
     if (!ms)
         return RTP_NOT_FOUND;
 
     /* Call public stop() to allow the media stream to stop background threads safely. */
+    UVG_LOG_DEBUG("calling media_stream::stop() for ptr %p", (void*)ms);
+    UVG_LOG_INFO("destroy_stream: stopping stream ptr %p", (void*)ms);
     (void)ms->stop();
+    UVG_LOG_DEBUG("media_stream::stop() returned for ptr %p", (void*)ms);
+    UVG_LOG_INFO("destroy_stream: stop returned for ptr %p", (void*)ms);
 
     delete ms;
+    UVG_LOG_DEBUG("deleted media_stream ptr %p (key %u)", (void*)ms, removed_key);
+    UVG_LOG_INFO("destroy_stream: deleted stream ptr %p key=%u", (void*)ms, removed_key);
     ms = nullptr;
 
     return RTP_OK;
