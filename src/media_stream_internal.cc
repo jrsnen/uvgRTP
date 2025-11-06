@@ -77,33 +77,7 @@ uvgrtp::media_stream_internal::media_stream_internal(std::string cname, std::str
 
 uvgrtp::media_stream_internal::~media_stream_internal()
 {
-    UVG_LOG_DEBUG("~media_stream_internal() called for key %u ssrc %u remote_ssrc %u rce_flags 0x%x",
-        key_, ssrc_.get()->load(), remote_ssrc_.get()->load(), rce_flags_);
-    // TODO: I would take a close look at what happens when pull_frame is called
-    // and media stream is destroyed. Note that this is the only way to stop pull
-    // frame without waiting
-    if (socket_) {
-        socket_->remove_handler(ssrc_);
-    }
-
-    if ((rce_flags_ & RCE_RTCP) && rtcp_)
-    {
-        rtcp_->pimpl_->stop();
-    }
-
-    // Clear this media stream from the reception_flow
-    if (reception_flow_)
-    {
-        reception_flow_->remove_handlers(remote_ssrc_);
-
-        if (reception_flow_->clear_stream_from_flow(remote_ssrc_) == 1) {
-            reception_flow_->stop();
-            if (sfp_) {
-                sfp_->clear_port(src_port_, socket_);
-            }
-        }
-    }
-
+    (void)stop();
     (void)free_resources(RTP_OK);
 }
 
@@ -573,47 +547,36 @@ rtp_error_t uvgrtp::media_stream_internal::start_components()
 
 rtp_error_t uvgrtp::media_stream_internal::stop()
 {
-    UVG_LOG_DEBUG("media_stream_internal::stop() called for key %u ssrc %u remote_ssrc %u rce_flags 0x%x",
-        key_, ssrc_.get()->load(), remote_ssrc_.get()->load(), rce_flags_);
-    UVG_LOG_INFO("media_stream stop start: key=%u ssrc=%u remote_ssrc=%u flags=0x%x",
-        key_, ssrc_.get()->load(), remote_ssrc_.get()->load(), rce_flags_);
+    /* This attempts a graceful stop of worker components that may be running
+     * so that deleting media_stream after this call has a smaller race window.
+     * We intentionally do not throw exceptions here. */
 
     if ((rce_flags_ & RCE_HOLEPUNCH_KEEPALIVE) && holepuncher_)
     {
-        UVG_LOG_DEBUG("stopping holepuncher for key %u", key_);
         holepuncher_->stop();
     }
 
     if (socket_) {
-        UVG_LOG_DEBUG("removing socket handler for ssrc %u (key %u)", ssrc_.get()->load(), key_);
         socket_->remove_handler(ssrc_);
     }
 
     if ((rce_flags_ & RCE_RTCP) && rtcp_)
     {
-        UVG_LOG_DEBUG("stopping rtcp for key %u", key_);
         rtcp_->pimpl_->stop();
     }
 
     if (reception_flow_)
     {
-        UVG_LOG_DEBUG("removing reception_flow handlers for remote_ssrc %u (key %u)", remote_ssrc_.get()->load(), key_);
         (void)reception_flow_->remove_handlers(remote_ssrc_);
 
         if (reception_flow_->clear_stream_from_flow(remote_ssrc_) == 1) {
-            UVG_LOG_DEBUG("reception_flow now empty after removing key %u; stopping reception_flow and clearing port %u", key_, src_port_);
             reception_flow_->stop();
             if (sfp_) {
                 sfp_->clear_port(src_port_, socket_);
             }
         }
-        else {
-            UVG_LOG_DEBUG("reception_flow still has other streams after removing key %u", key_);
-        }
     }
 
-    UVG_LOG_DEBUG("media_stream_internal::stop() completed for key %u", key_);
-    UVG_LOG_INFO("media_stream stop complete: key=%u", key_);
     return RTP_OK;
 }
 
