@@ -207,6 +207,7 @@ rtp_error_t uvgrtp::rtcp_internal::start()
           socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
         }
         report_generator_.reset(new std::thread(rtcp_runner, this));
+        UVG_LOG_DEBUG("Started RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
         return RTP_OK;
       }
 
@@ -245,6 +246,7 @@ rtp_error_t uvgrtp::rtcp_internal::start()
         socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
       }
       report_generator_.reset(new std::thread(rtcp_runner, this));
+    UVG_LOG_DEBUG("Started RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
       rtcp_reader_->start();
     }
 
@@ -274,6 +276,7 @@ rtp_error_t uvgrtp::rtcp_internal::stop()
     }
 
     runner_mutex_.lock();
+    UVG_LOG_DEBUG("Setting active_=false for RTCP and notifying runner (thread present: %s)", report_generator_ && report_generator_->joinable() ? "yes" : "no");
     active_ = false;
     runner_mutex_.unlock();
     runner_cv_.notify_all();
@@ -282,6 +285,7 @@ rtp_error_t uvgrtp::rtcp_internal::stop()
     {
         UVG_LOG_DEBUG("Waiting for RTCP loop to exit");
         report_generator_->join();
+        UVG_LOG_DEBUG("Joined RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
     }
     if (!(rce_flags_ & RCE_RTCP_MUX)) {
         if (rtcp_reader_ && rtcp_reader_->clear_rtcp_from_reader(remote_ssrc_) == 1) {
@@ -295,6 +299,8 @@ rtp_error_t uvgrtp::rtcp_internal::stop()
 void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
 {
     UVG_LOG_INFO("RTCP instance created!");
+
+    UVG_LOG_DEBUG("rtcp_runner thread id hash: %zu", std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
     // RFC 3550 says to wait half interval before sending first report
     int initial_sleep_ms = rtcp->get_rtcp_interval_ms() / 2;
@@ -310,7 +316,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
     while (rtcp->is_active())
     {
         ++report_number;
-        UVG_LOG_DEBUG("Sending RTCP report number %i", report_number);
+        UVG_LOG_DEBUG("Sending RTCP report number %i (rtcp active=%d) [thread hash=%zu]", report_number, (int)rtcp->is_active(), std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         if ((ret = rtcp->generate_report()) != RTP_OK && ret != RTP_NOT_READY)
         {

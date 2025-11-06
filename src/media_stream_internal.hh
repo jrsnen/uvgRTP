@@ -447,6 +447,9 @@ namespace uvgrtp {
 
         /* Has the media stream been initialized */
         bool initialized_;
+        
+        /* Guard to prevent double-stop / concurrent stop calls */
+        std::atomic<bool> stopping_ { false };
 
         /* RTP packet reception flow. Dispatches packets to other components */
         std::shared_ptr<uvgrtp::reception_flow> reception_flow_;
