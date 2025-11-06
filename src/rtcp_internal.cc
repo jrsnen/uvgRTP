@@ -196,59 +196,62 @@ void uvgrtp::rtcp_internal::free_participant(std::unique_ptr<rtcp_participant> p
 
 rtp_error_t uvgrtp::rtcp_internal::start()
 {
-    if (!active_)
-    {
-      active_ = true;
-      ipv6_ = sfp_->get_ipv6();
-      if ((rce_flags_ & RCE_RTCP_MUX)) {
-        if (ipv6_) {
-          socket_address_ipv6_ = uvgrtp::socket::create_ip6_sockaddr(remote_addr_, dst_port_);
+        // Ensure start/stop/runner creation are serialized to avoid duplicate runners
+        std::lock_guard<std::mutex> lock(runner_mutex_);
+        if (active_.load()) {
+                UVG_LOG_DEBUG("RTCP start(): already active for rtcp_ptr=%p report_generator=%p", this, report_generator_.get());
+                return RTP_OK;
+        }
+
+        active_.store(true);
+        ipv6_ = sfp_->get_ipv6();
+        if ((rce_flags_ & RCE_RTCP_MUX)) {
+                if (ipv6_) {
+                        socket_address_ipv6_ = uvgrtp::socket::create_ip6_sockaddr(remote_addr_, dst_port_);
+                } else {
+                        socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
+                }
+                report_generator_.reset(new std::thread(rtcp_runner, this));
+                UVG_LOG_DEBUG("Started RTCP runner thread (rtcp_ptr=%p report_generator=%p thread_hash=%zu)", this, report_generator_.get(), std::hash<std::thread::id>{}(report_generator_->get_id()));
+                return RTP_OK;
+        }
+
+        rtcp_reader_ = sfp_->get_rtcp_reader(local_port_);
+        rtp_error_t ret = RTP_OK;
+
+        /* Set read timeout (5s for now)
+         * This means that the socket is listened for 5s at a time and after the timeout,
+         * Send Report is sent to all participants */
+        struct timeval tv;
+        tv.tv_sec = 3;
+        tv.tv_usec = 0;
+
+        if ((ret = rtcp_socket_->setsockopt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))) != RTP_OK) {
+                return ret;
+        }
+
+        if (local_addr_ != "") {
+                UVG_LOG_INFO("Binding RTCP to port %s:%d", local_addr_.c_str(), local_port_);
+                if ((ret = sfp_->bind_socket(rtcp_socket_, local_port_)) != RTP_OK) {
+                        log_platform_error("bind(2) failed");
+                        return ret;
+                }
         } else {
-          socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
+                UVG_LOG_WARN("No local address provided, binding RTCP to INADDR_ANY");
+                UVG_LOG_INFO("Binding RTCP to port %s:%d", local_addr_.c_str(), local_port_);
+                if ((ret = sfp_->bind_socket_anyip(rtcp_socket_, local_port_)) != RTP_OK) {
+                        log_platform_error("bind(2) to any failed");
+                        return ret;
+                }
+        }
+        if (ipv6_) {
+                socket_address_ipv6_ = uvgrtp::socket::create_ip6_sockaddr(remote_addr_, dst_port_);
+        } else {
+                socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
         }
         report_generator_.reset(new std::thread(rtcp_runner, this));
-        UVG_LOG_DEBUG("Started RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
-        return RTP_OK;
-      }
-
-      rtcp_reader_ = sfp_->get_rtcp_reader(local_port_);
-      rtp_error_t ret = RTP_OK;
-
-      /* Set read timeout (5s for now)
-     *
-     * This means that the socket is listened for 5s at a time and after the timeout,
-     * Send Report is sent to all participants */
-      struct timeval tv;
-      tv.tv_sec = 3;
-      tv.tv_usec = 0;
-
-      if ((ret = rtcp_socket_->setsockopt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))) != RTP_OK) {
-        return ret;
-      }
-
-      if (local_addr_ != "") {
-        UVG_LOG_INFO("Binding RTCP to port %s:%d", local_addr_.c_str(), local_port_);
-        if ((ret = sfp_->bind_socket(rtcp_socket_, local_port_)) != RTP_OK) {
-          log_platform_error("bind(2) failed");
-          return ret;
-        }
-      } else {
-        UVG_LOG_WARN("No local address provided, binding RTCP to INADDR_ANY");
-        UVG_LOG_INFO("Binding RTCP to port %s:%d", local_addr_.c_str(), local_port_);
-        if ((ret = sfp_->bind_socket_anyip(rtcp_socket_, local_port_)) != RTP_OK) {
-          log_platform_error("bind(2) to any failed");
-          return ret;
-        }
-      }
-      if (ipv6_) {
-        socket_address_ipv6_ = uvgrtp::socket::create_ip6_sockaddr(remote_addr_, dst_port_);
-      } else {
-        socket_address_ = uvgrtp::socket::create_sockaddr(AF_INET, remote_addr_, dst_port_);
-      }
-      report_generator_.reset(new std::thread(rtcp_runner, this));
-    UVG_LOG_DEBUG("Started RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
-      rtcp_reader_->start();
-    }
+        UVG_LOG_DEBUG("Started RTCP runner thread (rtcp_ptr=%p report_generator=%p thread_hash=%zu)", this, report_generator_.get(), std::hash<std::thread::id>{}(report_generator_->get_id()));
+        rtcp_reader_->start();
 
     return RTP_OK;
 }
@@ -1260,39 +1263,35 @@ rtp_error_t uvgrtp::rtcp_internal::handle_incoming_packet(void* args, int rce_fl
         remaining_size -= size_of_rtcp_packet;
     }
 
-    if (packets > 1)
+    if (!active_.load())
     {
-        UVG_LOG_DEBUG("Received a compound RTCP frame with %i packets and size: %li", packets, size);
-    }
-    else
-    {
-        UVG_LOG_WARN("Received RTCP packet was not a compound packet!");
+        cleanup_participants();
+        return RTP_OK;
     }
 
+    // Set active_ = false and notify the runner. Hold mutex while swapping state to avoid races with start().
+    {
+        std::lock_guard<std::mutex> lock(runner_mutex_);
+        UVG_LOG_DEBUG("Setting active_=false for RTCP and notifying runner (rtcp_ptr=%p report_generator=%p)", this, report_generator_.get());
+        active_.store(false);
+    }
+    runner_cv_.notify_all();
+
+    // Move the thread out under the mutex so we can join it without holding the mutex
+    std::unique_ptr<std::thread> thr;
+    {
+        std::lock_guard<std::mutex> lock(runner_mutex_);
+        thr = std::move(report_generator_);
+    }
+
+    if (thr && thr->joinable())
+    {
+        UVG_LOG_DEBUG("Waiting for RTCP loop to exit (rtcp_ptr=%p thread=%p)", this, thr.get());
+        thr->join();
+        UVG_LOG_DEBUG("Joined RTCP runner thread (rtcp_ptr=%p thread=%p thread_hash=%zu)", this, thr.get(), std::hash<std::thread::id>{}(thr->get_id()));
+    }
+    
     return RTP_OK;
-}
-
-void uvgrtp::rtcp_internal::read_rtcp_header(const uint8_t* buffer, size_t& read_ptr, uvgrtp::frame::rtcp_header& header)
-{
-    header.version = (buffer[read_ptr] >> 6) & 0x3;
-    header.padding = (buffer[read_ptr] >> 5) & 0x1;
-
-    header.pkt_type = buffer[read_ptr + 1] & 0xff;
-
-    if (header.pkt_type == uvgrtp::frame::RTCP_FT_APP)
-    {
-        header.pkt_subtype = buffer[read_ptr] & 0x1f;
-    }
-    else if (header.pkt_type == uvgrtp::frame::RTCP_FT_RTPFB || header.pkt_type == uvgrtp::frame::RTCP_FT_PSFB) {
-        header.fmt = buffer[read_ptr] & 0x1f;
-    }
-    else {
-        header.count = buffer[read_ptr] & 0x1f;
-    }
-
-    header.length = ntohs(*(uint16_t*)&buffer[read_ptr + 2]);
-
-    read_ptr += RTCP_HEADER_SIZE;
 }
 
 void uvgrtp::rtcp_internal::read_reports(const uint8_t* buffer, size_t& read_ptr, size_t packet_end, uint8_t count, uint32_t frame_ssrc,
@@ -1340,6 +1339,29 @@ void uvgrtp::rtcp_internal::read_reports(const uint8_t* buffer, size_t& read_ptr
                 "Read: %i/%i, Read ptr: %i, Packet End:", i, count, read_ptr, packet_end);
         }
     }
+}
+
+void uvgrtp::rtcp_internal::read_rtcp_header(const uint8_t* buffer, size_t& read_ptr, uvgrtp::frame::rtcp_header& header)
+{
+    header.version = (buffer[read_ptr] >> 6) & 0x3;
+    header.padding = (buffer[read_ptr] >> 5) & 0x1;
+
+    header.pkt_type = buffer[read_ptr + 1] & 0xff;
+
+    if (header.pkt_type == uvgrtp::frame::RTCP_FT_APP)
+    {
+        header.pkt_subtype = buffer[read_ptr] & 0x1f;
+    }
+    else if (header.pkt_type == uvgrtp::frame::RTCP_FT_RTPFB || header.pkt_type == uvgrtp::frame::RTCP_FT_PSFB) {
+        header.fmt = buffer[read_ptr] & 0x1f;
+    }
+    else {
+        header.count = buffer[read_ptr] & 0x1f;
+    }
+
+    header.length = ntohs(*(uint16_t*)&buffer[read_ptr + 2]);
+
+    read_ptr += RTCP_HEADER_SIZE;
 }
 
 void uvgrtp::rtcp_internal::read_ssrc(const uint8_t* buffer, size_t& read_ptr, uint32_t& out_ssrc)
@@ -1805,6 +1827,11 @@ uint32_t uvgrtp::rtcp_internal::size_of_compound_packet(uint16_t reports,
 
 rtp_error_t uvgrtp::rtcp_internal::generate_report()
 {
+    if (!active_.load()) {
+        UVG_LOG_DEBUG("generate_report(): RTCP inactive, skipping (rtcp_ptr=%p)", this);
+        return RTP_OK;
+    }
+
     /* Check the participants_ map. If there is no other participants, don't send report */
     if (participants_.empty()) {
         UVG_LOG_DEBUG("No other participants in this session. Report not sent.");
