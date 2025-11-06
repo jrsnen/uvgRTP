@@ -551,32 +551,46 @@ rtp_error_t uvgrtp::media_stream_internal::stop()
      * so that deleting media_stream after this call has a smaller race window.
      * We intentionally do not throw exceptions here. */
 
+    UVG_LOG_DEBUG("Stopping media stream %u (ssrc)", ssrc_.get()->load());
+
     if ((rce_flags_ & RCE_HOLEPUNCH_KEEPALIVE) && holepuncher_)
     {
+        UVG_LOG_DEBUG("Stopping holepuncher for stream %u", ssrc_.get()->load());
         holepuncher_->stop();
     }
 
-    if (socket_) {
-        socket_->remove_handler(ssrc_);
-    }
-
-    if ((rce_flags_ & RCE_RTCP) && rtcp_)
-    {
-        rtcp_->pimpl_->stop();
-    }
-
+    // First remove any reception handlers so no new incoming packets will
+    // invoke handlers while we are trying to stop internal components.
     if (reception_flow_)
     {
+        UVG_LOG_DEBUG("Removing reception_flow handlers for remote_ssrc=%u (stream %u)", remote_ssrc_.get()->load(), ssrc_.get()->load());
         (void)reception_flow_->remove_handlers(remote_ssrc_);
 
         if (reception_flow_->clear_stream_from_flow(remote_ssrc_) == 1) {
+            UVG_LOG_DEBUG("No more streams on reception_flow, stopping reception_flow for stream %u", ssrc_.get()->load());
             reception_flow_->stop();
             if (sfp_) {
+                UVG_LOG_DEBUG("Clearing port %u for stream %u", src_port_, ssrc_.get()->load());
                 sfp_->clear_port(src_port_, socket_);
             }
         }
     }
 
+    // Remove socket-level handlers so no socket callbacks reference our objects.
+    if (socket_) {
+        UVG_LOG_DEBUG("Removing socket handler for stream %u", ssrc_.get()->load());
+        socket_->remove_handler(ssrc_);
+    }
+
+    if ((rce_flags_ & RCE_RTCP) && rtcp_)
+    {
+        UVG_LOG_DEBUG("Stopping RTCP for stream %u", ssrc_.get()->load());
+        rtcp_->pimpl_->stop();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        UVG_LOG_DEBUG("RTCP stop completed for stream %u", ssrc_.get()->load());
+    }
+
+    UVG_LOG_DEBUG("Stop complete for media stream %u", ssrc_.get()->load());
     return RTP_OK;
 }
 
