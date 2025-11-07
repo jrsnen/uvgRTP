@@ -34,6 +34,7 @@
 
 
 std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::rtcp>> uvgrtp::media_stream_internal::rtcp_map_;
+std::mutex uvgrtp::media_stream_internal::rtcp_map_mutex_;
 
 uvgrtp::media_stream_internal::media_stream_internal(std::string cname, std::string remote_addr,
     std::string local_addr, uint16_t src_port, uint16_t dst_port, rtp_format_t fmt,
@@ -280,13 +281,23 @@ rtp_error_t uvgrtp::media_stream_internal::free_resources(rtp_error_t ret)
         holepuncher_->stop();
     }
 
-    rtcp_mutex_.lock();
-    if (rtcp_map_.find(ssrc_.get()->load()) != rtcp_map_.end())
     {
-        UVG_LOG_DEBUG("media_stream_internal::free_resources erasing rtcp for ssrc=%u rtcp_ptr=%p", ssrc_.get()->load(), rtcp_map_[ssrc_.get()->load()].get());
-        rtcp_map_.erase(ssrc_.get()->load());
+        std::lock_guard<std::mutex> guard(rtcp_map_mutex_);
+        auto it = rtcp_map_.find(ssrc_.get()->load());
+        if (it != rtcp_map_.end())
+        {
+            auto shared = it->second;
+            unsigned use_count = (unsigned)shared.use_count();
+            UVG_LOG_DEBUG("media_stream_internal::free_resources rtcp for ssrc=%u rtcp_ptr=%p use_count=%u", ssrc_.get()->load(), shared.get(), use_count);
+            if (use_count <= 1) {
+                UVG_LOG_DEBUG("media_stream_internal::free_resources erasing rtcp for ssrc=%u rtcp_ptr=%p", ssrc_.get()->load(), shared.get());
+                rtcp_map_.erase(it);
+            }
+            else {
+                UVG_LOG_DEBUG("media_stream_internal::free_resources keeping rtcp_map_ entry for ssrc=%u (other owners remain)", ssrc_.get()->load());
+            }
+        }
     }
-    rtcp_mutex_.unlock();
 
     rtcp_ = nullptr;
     rtp_ = nullptr;
@@ -349,19 +360,20 @@ rtp_error_t uvgrtp::media_stream_internal::init(std::shared_ptr<uvgrtp::zrtp> zr
 
     rtp_ = std::make_shared<uvgrtp::rtp>(fmt_, ssrc_, ipv6_);
 
-    rtcp_mutex_.lock();
-    // we are the only friend class for rtcp to call internal constructor
-    if (rtcp_map_.find(ssrc_.get()->load()) == rtcp_map_.end()) {
-        rtcp_ = std::shared_ptr<uvgrtp::rtcp>(new uvgrtp::rtcp(rtp_, ssrc_, remote_ssrc_, cname_, sfp_, rce_flags_));
-        rtcp_map_[ssrc_.get()->load()] = rtcp_;
-        UVG_LOG_DEBUG("media_stream_internal::init created new rtcp for ssrc=%u rtcp_ptr=%p", ssrc_.get()->load(), rtcp_.get());
-    }
-    else
     {
-        rtcp_ = rtcp_map_[ssrc_.get()->load()];
-        UVG_LOG_DEBUG("media_stream_internal::init reusing rtcp for ssrc=%u rtcp_ptr=%p", ssrc_.get()->load(), rtcp_.get());
+        std::lock_guard<std::mutex> guard(rtcp_map_mutex_);
+        // we are the only friend class for rtcp to call internal constructor
+        if (rtcp_map_.find(ssrc_.get()->load()) == rtcp_map_.end()) {
+            rtcp_ = std::shared_ptr<uvgrtp::rtcp>(new uvgrtp::rtcp(rtp_, ssrc_, remote_ssrc_, cname_, sfp_, rce_flags_));
+            rtcp_map_[ssrc_.get()->load()] = rtcp_;
+            UVG_LOG_DEBUG("media_stream_internal::init created new rtcp for ssrc=%u rtcp_ptr=%p use_count=%u", ssrc_.get()->load(), rtcp_.get(), (unsigned)rtcp_.use_count());
+        }
+        else
+        {
+            rtcp_ = rtcp_map_[ssrc_.get()->load()];
+            UVG_LOG_DEBUG("media_stream_internal::init reusing rtcp for ssrc=%u rtcp_ptr=%p use_count=%u", ssrc_.get()->load(), rtcp_.get(), (unsigned)rtcp_.use_count());
+        }
     }
-    rtcp_mutex_.unlock();
 
     srtp_ = std::make_shared<uvgrtp::srtp>(rce_flags_);
     srtcp_ = std::make_shared<uvgrtp::srtcp>();

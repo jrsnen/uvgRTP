@@ -427,7 +427,8 @@ namespace uvgrtp {
         std::shared_ptr<uvgrtp::rtcp>   rtcp_;
         std::shared_ptr<uvgrtp::zrtp>   zrtp_;
 
-        std::mutex rtcp_mutex_;
+        // Protects access to the static rtcp_map_
+        static std::mutex rtcp_map_mutex_;
         static std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::rtcp>> rtcp_map_;
 
         std::shared_ptr<uvgrtp::socketfactory> sfp_;

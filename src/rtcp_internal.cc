@@ -278,17 +278,35 @@ rtp_error_t uvgrtp::rtcp_internal::stop()
         return RTP_OK;
     }
 
-    runner_mutex_.lock();
-    UVG_LOG_DEBUG("Setting active_=false for RTCP and notifying runner (thread present: %s)", report_generator_ && report_generator_->joinable() ? "yes" : "no");
-    active_ = false;
-    runner_mutex_.unlock();
+    {
+        std::lock_guard<std::mutex> lk(runner_mutex_);
+        UVG_LOG_DEBUG("Setting active_=false for RTCP and notifying runner (thread present: %s)", report_generator_ && report_generator_->joinable() ? "yes" : "no");
+        active_.store(false);
+    }
     runner_cv_.notify_all();
 
-    if (report_generator_ && report_generator_->joinable())
+    // If we have a dedicated RTCP reader (non-muxed sockets), stop it first so it won't
+    // block on polling the socket and keep resources alive while we're trying to join the runner.
+    if (!(rce_flags_ & RCE_RTCP_MUX)) {
+        if (rtcp_reader_) {
+            UVG_LOG_DEBUG("Stopping RTCP reader before joining runner");
+            rtcp_reader_->stop();
+            UVG_LOG_DEBUG("RTCP reader stop returned");
+        }
+    }
+
+    // Move the thread out under the mutex so we can join it without holding the mutex
+    std::unique_ptr<std::thread> thr;
     {
-        UVG_LOG_DEBUG("Waiting for RTCP loop to exit");
-        report_generator_->join();
-        UVG_LOG_DEBUG("Joined RTCP runner thread (hash id: %zu)", std::hash<std::thread::id>{}(report_generator_->get_id()));
+        std::lock_guard<std::mutex> lk(runner_mutex_);
+        thr = std::move(report_generator_);
+    }
+
+    if (thr && thr->joinable())
+    {
+        UVG_LOG_DEBUG("Waiting for RTCP loop to exit (rtcp_ptr=%p thread=%p)", this, thr.get());
+        thr->join();
+        UVG_LOG_DEBUG("Joined RTCP runner thread (rtcp_ptr=%p thread=%p thread_hash=%zu)", this, thr.get(), std::hash<std::thread::id>{}(thr->get_id()));
     }
     if (!(rce_flags_ & RCE_RTCP_MUX)) {
         if (rtcp_reader_ && rtcp_reader_->clear_rtcp_from_reader(remote_ssrc_) == 1) {
