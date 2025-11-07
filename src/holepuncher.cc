@@ -23,14 +23,15 @@ uvgrtp::holepuncher::~holepuncher()
 
 rtp_error_t uvgrtp::holepuncher::start()
 {
-    active_ = true;
-    runner_ = std::unique_ptr<std::thread> (new std::thread(&uvgrtp::holepuncher::keepalive, this));
+    active_.store(true);
+    runner_ = std::unique_ptr<std::thread>(new std::thread(&uvgrtp::holepuncher::keepalive, this));
     return RTP_OK;
 }
 
 rtp_error_t uvgrtp::holepuncher::stop()
 {
-    active_ = false;
+    active_.store(false);
+    cv_.notify_all();
     if (runner_ && runner_->joinable())
     {
         runner_->join();
@@ -62,16 +63,21 @@ void uvgrtp::holepuncher::keepalive()
      * sending empty (0-Byte) packets, which is implemented here.
      * Another method (section 4.3) is multiplexing RTCP and RTP packets into a single socket, which keeps the connection
      * alive at all times with RTCP packets.  */
-    while (active_) {
+    std::unique_lock<std::mutex> lk(cv_mutex_);
+    while (active_.load()) {
         if (uvgrtp::clock::ntp::diff_now(last_dgram_sent_) < THRESHOLD) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            // wait_for returns when timeout expires or when notified (stop() will notify)
+            cv_.wait_for(lk, std::chrono::milliseconds(500), [&]() { return !active_.load() || uvgrtp::clock::ntp::diff_now(last_dgram_sent_) >= THRESHOLD; });
             continue;
         }
 
         UVG_LOG_DEBUG("Sending keep-alive");
         uint8_t payload = 0b11000000;
+        // Unlock while sending to avoid holding the cv_mutex_ during network ops
+        lk.unlock();
         socket_->sendto(remote_sockaddr_, remote_sockaddr_ip6_, &payload, 1, 0);
         last_dgram_sent_ = uvgrtp::clock::ntp::now();
+        lk.lock();
     }
     UVG_LOG_DEBUG("Stopping holepuncher");
 }

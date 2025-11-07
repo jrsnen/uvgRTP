@@ -325,8 +325,15 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
 
     // RFC 3550 says to wait half interval before sending first report
     int initial_sleep_ms = rtcp->get_rtcp_interval_ms() / 2;
-    UVG_LOG_DEBUG("Sleeping for %i ms before sending first RTCP report", initial_sleep_ms);
-    std::this_thread::sleep_for(std::chrono::milliseconds(initial_sleep_ms));
+    UVG_LOG_DEBUG("Waiting (interruptible) for %i ms before sending first RTCP report", initial_sleep_ms);
+    {
+        std::unique_lock<std::mutex> lk(rtcp->get_runner_mutex());
+        rtcp->get_runner_cv().wait_for(lk, std::chrono::milliseconds(initial_sleep_ms), [&]() { return !rtcp->is_active(); });
+    }
+    if (!rtcp->is_active()) {
+        UVG_LOG_DEBUG("RTCP runner exiting early after initial wait (inactive)");
+        return;
+    }
 
     uint32_t current_interval_ms = rtcp->get_rtcp_interval_ms();
     rtp_error_t ret = RTP_OK;
