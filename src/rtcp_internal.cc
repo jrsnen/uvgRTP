@@ -44,7 +44,7 @@ uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shar
     members_(0),
     total_bandwidth_(0), rtcp_bandwidth_(0), reduced_minimum_(0),
     local_addr_(""), remote_addr_(""), local_port_(0), dst_port_(0),
-    avg_rtcp_pkt_pize_(0), avg_rtcp_size_(64), rtcp_pkt_count_(0), rtcp_byte_count_(0),
+    avg_rtcp_pkt_pize_(0), avg_rtcp_size_(128), rtcp_pkt_count_(0), rtcp_byte_count_(0),
     rtcp_pkt_sent_count_(0), initial_(true), ssrc_(ssrc), remote_ssrc_(remote_ssrc),
     num_receivers_(0),
     ipv6_(false),
@@ -340,13 +340,29 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             UVG_LOG_INFO("Failed to send RTCP status report!");
         }
 
-        int senders = 1;
+        // Compute number of active senders from participants_ and our local send state
+        int senders = 0;
+        {
+            std::lock_guard<std::mutex> prtcp_lock(rtcp->participants_mutex_);
+            for (auto &p : rtcp->participants_) {
+                if (p.second->stats.received_rtp_packet) {
+                    ++senders;
+                }
+            }
+        }
 
-        //Here we check if there are any timed out sources
-        //This vector collects the ssrcs of timed out sources
+        if (rtcp->our_stats.sent_rtp_packet) {
+            ++senders; // include ourselves if we've sent RTP
+        }
+        if (senders < 1) {
+            senders = 1; // ensure minimum of 1 to avoid degenerate cases
+        }
+
+        // Here we check if there are any timed out sources
+        // This vector collects the ssrcs of timed out sources
         std::vector<uint32_t> ssrcs_to_be_removed = {};
         double timeout_interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            true, (double)rtcp->avg_rtcp_size_, false, false);
+            rtcp->our_stats.sent_rtp_packet, (double)rtcp->avg_rtcp_size_, false, false);
         rtcp->ms_map_mutex_.lock();
         for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) {
              it->second += uint32_t(current_interval_ms);
@@ -364,7 +380,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         // TODO: Keep track of senders and update it here too
         // Same goes for we_sent also, it is always set to true. TODO: fix this
         double interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            true, (double)rtcp->avg_rtcp_size_, true, true);
+            rtcp->our_stats.sent_rtp_packet, (double)rtcp->avg_rtcp_size_, true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
