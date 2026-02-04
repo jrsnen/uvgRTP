@@ -44,7 +44,7 @@ uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shar
     members_(0),
     total_bandwidth_(0), rtcp_bandwidth_(0), reduced_minimum_(0),
     local_addr_(""), remote_addr_(""), local_port_(0), dst_port_(0),
-    avg_rtcp_pkt_pize_(0), avg_rtcp_size_(128), rtcp_pkt_count_(0), rtcp_byte_count_(0),
+    avg_rtcp_size_(128),
     rtcp_pkt_sent_count_(0), initial_(true), ssrc_(ssrc), remote_ssrc_(remote_ssrc),
     num_receivers_(0),
     ipv6_(false),
@@ -362,7 +362,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         // This vector collects the ssrcs of timed out sources
         std::vector<uint32_t> ssrcs_to_be_removed = {};
         double timeout_interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            rtcp->our_stats.sent_rtp_packet, (double)rtcp->avg_rtcp_size_, false, false);
+            rtcp->our_stats.sent_rtp_packet, double(rtcp->avg_rtcp_size_), false, false);
         rtcp->ms_map_mutex_.lock();
         for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) {
              it->second += uint32_t(current_interval_ms);
@@ -376,11 +376,9 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             rtcp->remove_timeout_ssrc(rm);
         }
 
-        // Number of senders is hard set to 1, because it is not updated anywhere.
-        // TODO: Keep track of senders and update it here too
-        // Same goes for we_sent also, it is always set to true. TODO: fix this
+        
         double interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            rtcp->our_stats.sent_rtp_packet, (double)rtcp->avg_rtcp_size_, true, true);
+            rtcp->our_stats.sent_rtp_packet, double(rtcp->avg_rtcp_size_), true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
@@ -807,18 +805,16 @@ uvgrtp::frame::rtcp_app_packet* uvgrtp::rtcp_internal::get_app_packet(uint32_t s
     return frame;
 }
 
-void uvgrtp::rtcp_internal::update_rtcp_bandwidth(size_t pkt_size)
-{
-    rtcp_pkt_count_ += 1;
-    rtcp_byte_count_ += pkt_size + UDP_HDR_SIZE + IPV4_HDR_SIZE;
-    avg_rtcp_pkt_pize_ = rtcp_byte_count_ / rtcp_pkt_count_;
-}
-
 void uvgrtp::rtcp_internal::update_avg_rtcp_size(uint64_t packet_size)
 {
     double frac = static_cast<double>(15) / static_cast<double>(16);
 
-    avg_rtcp_size_ = uint64_t(double(packet_size) / 16 + frac * double(avg_rtcp_size_));
+    uint64_t ip_hdr_size = IPV4_HDR_SIZE;
+    if (ipv6_) {
+        ip_hdr_size = IPV6_HDR_SIZE;
+    }
+    const uint64_t on_wire_size = packet_size + UDP_HDR_SIZE + ip_hdr_size;
+    avg_rtcp_size_ = uint64_t(double(on_wire_size) / 16 + frac * double(avg_rtcp_size_));
 }
 
 
@@ -1165,7 +1161,6 @@ rtp_error_t uvgrtp::rtcp_internal::handle_incoming_packet(void* args, int rce_fl
 
     int packets = 0;
 
-    update_rtcp_bandwidth(size);
     update_avg_rtcp_size(size);
 
     rtp_error_t ret = RTP_OK;
@@ -1802,7 +1797,6 @@ rtp_error_t uvgrtp::rtcp_internal::send_rtcp_packet_to_participants(uint8_t* fra
             UVG_LOG_ERROR("Sending rtcp packet with sendto() failed!");
         }
 
-        update_rtcp_bandwidth(frame_size);
         update_avg_rtcp_size(frame_size);
     }
     else
@@ -1935,6 +1929,9 @@ rtp_error_t uvgrtp::rtcp_internal::generate_report()
         UVG_LOG_WARN("Generate RTCP packet is too large %lli/%lli, reports should be circled, but not implemented!",
             compound_packet_size, mtu_size_);
     }
+
+    // Record last measured compound RTCP size (without UDP/IP headers)
+    last_compound_rtcp_size_ = compound_packet_size;
 
     uint8_t* frame = new uint8_t[compound_packet_size];
     memset(frame, 0, compound_packet_size);

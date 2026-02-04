@@ -494,12 +494,6 @@ namespace uvgrtp {
          * packet-related statistics should not be updated */
         rtp_error_t update_participant_seq(uint32_t ssrc, uint16_t seq);
 
-        /* Update the RTCP bandwidth variables
-         *
-         * "pkt_size" tells how much rtcp_byte_count_
-         * should be increased before calculating the new average */
-        void update_rtcp_bandwidth(size_t pkt_size);
-
         /* Update average RTCP packet size variable
         * packet_size is the size of received RTCP packet in octets */
         void update_avg_rtcp_size(uint64_t packet_size);
@@ -558,24 +552,15 @@ namespace uvgrtp {
         uint16_t local_port_;
         uint16_t dst_port_;
 
-        /* The average compound RTCP packet size, in octets,
-         * over all RTCP packets sent and received by this participant. The
-         * size includes lower-layer transport and network protocol headers
-         * (e.g., UDP and IP) as explained in Section 6.2 */
-         // TODO: Only set, never read
-        size_t avg_rtcp_pkt_pize_;
-
         /* Average RTCP packet size in octets.
         * Initialized to 64 */
         uint64_t avg_rtcp_size_;
 
-        /* Number of RTCP packets and bytes sent and received by this participant */
-        // TODO: Only set, never read
-        size_t rtcp_pkt_count_;
-        size_t rtcp_byte_count_;
-
         /* Number of RTCP packets sent */
         uint32_t rtcp_pkt_sent_count_;
+
+        /* Last generated compound RTCP packet size (without UDP/IP headers) */
+        uint32_t last_compound_rtcp_size_ = 0;
 
         /* Flag that is true if the application has not yet sent an RTCP packet. */
         // TODO: Only set, never read
