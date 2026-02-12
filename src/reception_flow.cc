@@ -612,7 +612,10 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                         /* Update RTCP session statistics */
                         if (rce_flags & RCE_RTCP) {
                             if (handlers->rtcp_common.handler != nullptr) {
-                                retval = handlers->rtcp_common.handler(handlers->rtcp_common.args, rce_flags, &ptr[0], size, &frame);
+                                rtp_error_t rtcp_ret = handlers->rtcp_common.handler(handlers->rtcp_common.args, rce_flags, &ptr[0], size, &frame);
+                                if (retval != RTP_PKT_READY && retval != RTP_MULTIPLE_PKTS_READY) {
+                                    retval = rtcp_ret;
+                                }
                             }
                         }
 
