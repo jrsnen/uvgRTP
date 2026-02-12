@@ -37,6 +37,9 @@ const uint32_t MAX_MISORDER = 100;
 const uint32_t DEFAULT_RTCP_INTERVAL_MS = 5000;
 
 const uint32_t MAX_SUPPORTED_PARTICIPANTS = 31;
+/* Fixed RTCP timeout in seconds: source is considered timed out after
+ * RTCP_TIMEOUT_SECONDS seconds of silence. Set to 60s by default. */
+const uint32_t RTCP_TIMEOUT_SECONDS = 120;
 
 uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shared_ptr<std::atomic_uint> ssrc, std::shared_ptr<std::atomic<uint32_t>> remote_ssrc,
     std::string cname, std::shared_ptr<uvgrtp::socketfactory> sfp, int rce_flags) :
@@ -366,7 +369,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         rtcp->ms_map_mutex_.lock();
         for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) {
              it->second += uint32_t(current_interval_ms);
-            if (it->second > 5 * 1000 * timeout_interval_s) {
+            if (it->second > RTCP_TIMEOUT_SECONDS * 1000) {
                 ssrcs_to_be_removed.push_back(it->first);
             }
         }
