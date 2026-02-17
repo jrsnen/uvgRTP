@@ -947,6 +947,9 @@ rtp_error_t uvgrtp::media_stream_internal::configure_ctx(int rcc_flag, ssize_t v
         if (rtcp_) {
             rtcp_->pimpl_->set_session_bandwidth(bandwidth_);
         }
+        else {
+            UVG_LOG_WARN("RTCP not found, cannot set RCC_SESSION_BANDWIDTH");
+        }
         break;
     }
     case RCC_POLL_TIMEOUT: {
