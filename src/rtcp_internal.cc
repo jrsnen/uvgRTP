@@ -335,6 +335,28 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
 
     while (rtcp->is_active())
     {
+        // NOTE: generate_report() clears per-interval sender/receiver flags (received_rtp_packet/sent_rtp_packet).
+        // Capture the state before generating the report so the RTCP interval calculation stays correct.
+        const bool we_sent = rtcp->our_stats.sent_rtp_packet;
+
+        // Compute number of active senders from participants_ and our local send state
+        int senders = 0;
+        {
+            std::lock_guard<std::mutex> prtcp_lock(rtcp->participants_mutex_);
+            for (auto& p : rtcp->participants_) {
+                if (p.second->stats.received_rtp_packet) {
+                    ++senders;
+                }
+            }
+        }
+
+        if (we_sent) {
+            ++senders; // include ourselves if we've sent RTP
+        }
+        if (senders < 1) {
+            senders = 1; // ensure minimum of 1 to avoid degenerate cases
+        }
+
         ++report_number;
         UVG_LOG_DEBUG("Sending RTCP report number %i", report_number);
 
@@ -343,29 +365,11 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             UVG_LOG_INFO("Failed to send RTCP status report!");
         }
 
-        // Compute number of active senders from participants_ and our local send state
-        int senders = 0;
-        {
-            std::lock_guard<std::mutex> prtcp_lock(rtcp->participants_mutex_);
-            for (auto &p : rtcp->participants_) {
-                if (p.second->stats.received_rtp_packet) {
-                    ++senders;
-                }
-            }
-        }
-
-        if (rtcp->our_stats.sent_rtp_packet) {
-            ++senders; // include ourselves if we've sent RTP
-        }
-        if (senders < 1) {
-            senders = 1; // ensure minimum of 1 to avoid degenerate cases
-        }
-
         // Here we check if there are any timed out sources
         // This vector collects the ssrcs of timed out sources
         std::vector<uint32_t> ssrcs_to_be_removed = {};
         double timeout_interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            rtcp->our_stats.sent_rtp_packet, double(rtcp->avg_rtcp_size_), false, false);
+            we_sent, double(rtcp->avg_rtcp_size_), false, false);
         rtcp->ms_map_mutex_.lock();
         for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) {
              it->second += uint32_t(current_interval_ms);
@@ -378,10 +382,9 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         for (auto rm : ssrcs_to_be_removed) {
             rtcp->remove_timeout_ssrc(rm);
         }
-
         
         double interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            rtcp->our_stats.sent_rtp_packet, double(rtcp->avg_rtcp_size_), true, true);
+            we_sent, double(rtcp->avg_rtcp_size_), true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
