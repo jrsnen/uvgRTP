@@ -44,7 +44,6 @@ const uint32_t RTCP_TIMEOUT_SECONDS = 120;
 uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shared_ptr<std::atomic_uint> ssrc, std::shared_ptr<std::atomic<uint32_t>> remote_ssrc,
     std::string cname, std::shared_ptr<uvgrtp::socketfactory> sfp, int rce_flags) :
     rce_flags_(rce_flags),
-    members_(0),
     total_bandwidth_(0), rtcp_bandwidth_(0), reduced_minimum_(0),
     local_addr_(""), remote_addr_(""), local_port_(0), dst_port_(0),
     avg_rtcp_size_(128),
@@ -84,7 +83,6 @@ uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shar
 
     report_generator_ = nullptr;
     srtcp_ = nullptr;
-    members_ = 1;
 
     zero_stats(&our_stats);
 
@@ -353,9 +351,6 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         if (we_sent) {
             ++senders; // include ourselves if we've sent RTP
         }
-        if (senders < 1) {
-            senders = 1; // ensure minimum of 1 to avoid degenerate cases
-        }
 
         ++report_number;
         UVG_LOG_DEBUG("Sending RTCP report number %i", report_number);
@@ -368,12 +363,14 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         // Here we check if there are any timed out sources
         // This vector collects the ssrcs of timed out sources
         std::vector<uint32_t> ssrcs_to_be_removed = {};
-        double timeout_interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
-            we_sent, double(rtcp->avg_rtcp_size_), false, false);
+
         rtcp->ms_map_mutex_.lock();
-        for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) {
+
+        for (auto it = rtcp->ms_since_last_rep_.begin(); it != rtcp->ms_since_last_rep_.end(); ++it) 
+        {
              it->second += uint32_t(current_interval_ms);
-            if (it->second > RTCP_TIMEOUT_SECONDS * 1000) {
+            if (it->second > RTCP_TIMEOUT_SECONDS * 1000) 
+            {
                 ssrcs_to_be_removed.push_back(it->first);
             }
         }
@@ -382,10 +379,14 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
         for (auto rm : ssrcs_to_be_removed) {
             rtcp->remove_timeout_ssrc(rm);
         }
+
+        int members = rtcp->participants_.size() + 1;
         
-        double interval_s = rtcp->rtcp_interval(int(rtcp->members_), senders, rtcp->rtcp_bandwidth_,
+        double interval_s = rtcp->rtcp_interval(members, senders, rtcp->rtcp_bandwidth_,
             we_sent, double(rtcp->avg_rtcp_size_), true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
+
+        UVG_LOG_INFO("RTCP interval actually used: %.6f s", interval_s);
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
         rtcp->get_runner_cv().wait_for(lock, std::chrono::milliseconds(current_interval_ms), [&]() { return !rtcp->is_active(); });
@@ -433,7 +434,6 @@ rtp_error_t uvgrtp::rtcp_internal::add_initial_participant(uint32_t clock_rate)
         p->stats.clock_rate = clock_rate;
 
         initial_participants_.push_back(std::move(p));
-        members_ += 1;
     }
 
     return RTP_OK;
@@ -1637,9 +1637,7 @@ rtp_error_t uvgrtp::rtcp_internal::handle_bye_packet(uint8_t* packet, size_t& re
     }
     // TODO: RFC3550 6.2.1: add a delay for deleting the member. This way if straggler packets
     // are received after deletion, deleted member wont be recreated
-    if (members_ >= 1) {
-        members_ -= 1;
-    }
+
     // TODO: Give BYE packet to user and read optional reason for BYE
 
     return RTP_OK;
@@ -2240,10 +2238,6 @@ rtp_error_t uvgrtp::rtcp_internal::remove_timeout_ssrc(uint32_t ssrc)
     if (it != participants_.end()) {
         free_participant(std::move(it->second));
         participants_.erase(it);
-
-        if (members_ >= 1) {
-            members_ -= 1;
-        }
     }
     participants_mutex_.unlock();
 
@@ -2304,6 +2298,7 @@ double uvgrtp::rtcp_internal::rtcp_interval(int members, int senders,
     /* Add randomisation to avoid unintended synchronization of RTCP traffic */
     /* RFC3550 uses drand48() which apparently is obsolete? Lets use anoher one ? */
 
+    // TODO: store random device for better randomization
     if (randomisation) {
         std::random_device rd;
         std::mt19937 gen(rd());

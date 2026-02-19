@@ -530,8 +530,6 @@ namespace uvgrtp {
         /* RTP context flags */
         int rce_flags_;
 
-        size_t members_;  /* the most current estimate for the number of session members */
-
         /* Total session bandwidth. RTCP bandwidth will be set to 5 % of this */
         uint32_t total_bandwidth_;
 
