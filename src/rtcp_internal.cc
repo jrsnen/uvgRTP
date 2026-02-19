@@ -386,7 +386,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             we_sent, double(rtcp->avg_rtcp_size_), true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
 
-        UVG_LOG_INFO("RTCP interval actually used: %.6f s", interval_s);
+        UVG_LOG_INFO("RTCP interval used: %.6f s with %i members", interval_s, members);
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
         rtcp->get_runner_cv().wait_for(lock, std::chrono::milliseconds(current_interval_ms), [&]() { return !rtcp->is_active(); });
@@ -2272,6 +2272,8 @@ double uvgrtp::rtcp_internal::rtcp_interval(int members, int senders,
     * more than that fraction.
     */
     n = members;
+
+    /*
     if (senders <= double(members) * RTCP_SENDER_BW_FRACTION) {
         if (we_sent) {
             rtcp_bw *= RTCP_SENDER_BW_FRACTION;
@@ -2281,7 +2283,8 @@ double uvgrtp::rtcp_internal::rtcp_interval(int members, int senders,
             rtcp_bw *= RTCP_RCVR_BW_FRACTION;
             n -= senders;
         }
-    }
+    }*/
+
     /* The algorithm defined in RFC3550 produces very small values when n is small (1 - 10), so in these
     cases the reduced minimum will be used */
     t = avg_rtcp_size * n / rtcp_bw;
