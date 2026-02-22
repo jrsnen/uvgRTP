@@ -318,7 +318,7 @@ rtp_error_t uvgrtp::rtcp_internal::stop()
 
 void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
 {
-    UVG_LOG_INFO("RTCP instance created!");
+    UVG_LOG_INFO("RTCP instance created! Local SSRC: %lu", (unsigned long)rtcp->ssrc_->load());
 
     // RFC 3550 says to wait half interval before sending first report
     int initial_sleep_ms = rtcp->get_rtcp_interval_ms() / 2;
@@ -386,7 +386,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             we_sent, double(rtcp->avg_rtcp_size_), true, true);
         current_interval_ms = (uint32_t)round(1000 * interval_s);
 
-        UVG_LOG_INFO("RTCP interval used: %.6f s with %i members", interval_s, members);
+        UVG_LOG_INFO("RTCP interval used: %.6f s with %i members, rtcp size: %lu, bandwidth %f, local SSRC: %lu", interval_s, members, rtcp->avg_rtcp_size_, rtcp->rtcp_bandwidth_, (unsigned long)rtcp->ssrc_->load());
 
         std::unique_lock<std::mutex> lock(rtcp->get_runner_mutex());
         rtcp->get_runner_cv().wait_for(lock, std::chrono::milliseconds(current_interval_ms), [&]() { return !rtcp->is_active(); });
@@ -1905,6 +1905,9 @@ rtp_error_t uvgrtp::rtcp_internal::generate_report()
             ++reports;
         }
     }
+    // Log whether we're generating a Sender Report (SR) or Receiver Report (RR)
+    UVG_LOG_INFO("Generating RTCP report: %s with %i report blocks",
+                 (sr_packet ? "SR" : "RR"), reports);
     std::vector< std::shared_ptr<rtcp_app_packet>> outgoing_apps_;
     if (hooked_app_) {
         std::lock_guard<std::mutex> grd(send_app_mutex_);
@@ -2272,8 +2275,7 @@ double uvgrtp::rtcp_internal::rtcp_interval(int members, int senders,
     * more than that fraction.
     */
     n = members;
-
-    /*
+    
     if (senders <= double(members) * RTCP_SENDER_BW_FRACTION) {
         if (we_sent) {
             rtcp_bw *= RTCP_SENDER_BW_FRACTION;
@@ -2283,14 +2285,14 @@ double uvgrtp::rtcp_internal::rtcp_interval(int members, int senders,
             rtcp_bw *= RTCP_RCVR_BW_FRACTION;
             n -= senders;
         }
-    }*/
+    }
 
     /* The algorithm defined in RFC3550 produces very small values when n is small (1 - 10), so in these
     cases the reduced minimum will be used */
     t = avg_rtcp_size * n / rtcp_bw;
 
     double reduced_minimum_s = double(reduced_minimum_) / 1000;
-    if (!red_min) {
+    if (!red_min || we_sent) {
         reduced_minimum_s = 5;
     }
 
