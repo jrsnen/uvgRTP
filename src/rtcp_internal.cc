@@ -468,6 +468,11 @@ rtp_error_t uvgrtp::rtcp_internal::add_participant(uint32_t ssrc)
         participants_[ssrc]->sr_frame = nullptr;
         participants_[ssrc]->sdes_frame = nullptr;
         participants_[ssrc]->app_frame = nullptr;
+
+        UVG_LOG_INFO("RTCP participant added: ssrc=%lu total_participants=%llu initial_pool=%llu",
+            (unsigned long)ssrc,
+            (unsigned long long)participants_.size(),
+            (unsigned long long)initial_participants_.size());
     }
 
     return RTP_OK;
@@ -949,7 +954,7 @@ rtp_error_t uvgrtp::rtcp_internal::update_participant_seq(uint32_t ssrc, uint16_
         }
         else {
             participants_[ssrc]->stats.bad_seq = (seq + 1) & (RTP_SEQ_MOD - 1);
-            UVG_LOG_ERROR("Invalid sequence number. Seq jump: %u -> %u", participants_[ssrc]->stats.max_seq, seq);
+            UVG_LOG_ERROR("Invalid sequence number. SSRC: %u, seq jump: %u -> %u", ssrc, participants_[ssrc]->stats.max_seq, seq);
             return RTP_GENERIC_ERROR;
         }
     }
@@ -1111,8 +1116,11 @@ rtp_error_t uvgrtp::rtcp_internal::recv_packet_handler_common(void* arg, int rce
                 return RTP_OK;
             }
             else {
-                UVG_LOG_ERROR("Failed to update participant with seq %u", frame->header.seq);
-                return ret;
+                UVG_LOG_WARN("Failed to update participant. SSRC: %u, seq: %u, payload size: %zu B",
+                    frame->header.ssrc, frame->header.seq, frame->payload_len);
+                /* Keep RTP delivery running even if RTCP sequence validation rejects
+                 * this packet; next packet may re-sync via bad_seq handling. */
+                return RTP_PKT_NOT_HANDLED;
             }
         }
     }
