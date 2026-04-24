@@ -689,7 +689,7 @@ TEST(FormatTests, h264_aggregation)
     delete[] test_frame;
 
     std::cout << "H264: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -738,7 +738,7 @@ TEST(FormatTests, h265_aggregation)
     delete[] test_frame;
 
     std::cout << "H265: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -787,7 +787,7 @@ TEST(FormatTests, h266_aggregation)
     delete[] test_frame;
 
     std::cout << "H266: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -836,7 +836,7 @@ TEST(FormatTests, h265_disable_aggr)
     delete[] test_frame;
 
     std::cout << "H265: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
