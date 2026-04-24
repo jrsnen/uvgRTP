@@ -465,6 +465,7 @@ namespace uvgrtp {
         uint32_t bandwidth_ = 0;
         std::shared_ptr<std::atomic<std::uint32_t>> ssrc_;
         std::shared_ptr<std::atomic<std::uint32_t>> remote_ssrc_;
+        bool remote_ssrc_set_;
 
         // Save values associated with context flags, to be returned with get_configuration_value
         // Values are initialized to -2, which means value not set

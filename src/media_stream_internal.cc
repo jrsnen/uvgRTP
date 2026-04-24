@@ -66,6 +66,7 @@ uvgrtp::media_stream_internal::media_stream_internal(std::string cname, std::str
     fps_denominator_(1),
     ssrc_(std::make_shared<std::atomic<std::uint32_t>>(ssrc)),
     remote_ssrc_(std::make_shared<std::atomic<std::uint32_t>>(uvgrtp::random::generate_32())),
+    remote_ssrc_set_(false),
     snd_buf_size_(-1),
     rcv_buf_size_(-1),
     multicast_ttl_(-1)
@@ -749,7 +750,7 @@ uvgrtp::frame::rtp_frame* uvgrtp::media_stream_internal::pull_frame()
         return nullptr;
     }
     // If the remote_ssrc is set, only pull frames that come from this ssrc
-    if (remote_ssrc_.get()->load() != ssrc_.get()->load() + 1) {
+    if (remote_ssrc_set_) {
         return reception_flow_->pull_frame(remote_ssrc_);
     }
     return reception_flow_->pull_frame();
@@ -762,7 +763,7 @@ uvgrtp::frame::rtp_frame* uvgrtp::media_stream_internal::pull_frame(size_t timeo
         return nullptr;
     }
     // If the remote_ssrc is set, only pull frames that come from this ssrc
-    if (remote_ssrc_.get()->load() != ssrc_.get()->load() + 1) {
+    if (remote_ssrc_set_) {
         return reception_flow_->pull_frame(timeout_ms, remote_ssrc_);
     }
     return reception_flow_->pull_frame(timeout_ms);
@@ -973,6 +974,7 @@ rtp_error_t uvgrtp::media_stream_internal::configure_ctx(int rcc_flag, ssize_t v
             reception_flow_->update_remote_ssrc(remote_ssrc_.get()->load(), (uint32_t)value);
         }
         *remote_ssrc_ = (uint32_t)value;
+        remote_ssrc_set_ = true;
         break;
     }
     case RCC_MULTICAST_TTL: {
