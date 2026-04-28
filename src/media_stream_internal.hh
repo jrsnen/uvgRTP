@@ -430,6 +430,10 @@ namespace uvgrtp {
         std::mutex rtcp_mutex_;
         static std::mutex rtcp_map_mutex_;
         static std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::rtcp>> rtcp_map_;
+        static std::mutex srtp_map_mutex_;
+        static std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtp>> srtp_map_;
+        static std::mutex srtcp_map_mutex_;
+        static std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtcp>> srtcp_map_;
 
         std::shared_ptr<uvgrtp::socketfactory> sfp_;
 

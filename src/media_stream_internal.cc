@@ -35,6 +35,10 @@
 
 std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::rtcp>> uvgrtp::media_stream_internal::rtcp_map_;
 std::mutex uvgrtp::media_stream_internal::rtcp_map_mutex_;
+std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtp>> uvgrtp::media_stream_internal::srtp_map_;
+std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtcp>> uvgrtp::media_stream_internal::srtcp_map_;
+std::mutex uvgrtp::media_stream_internal::srtp_map_mutex_;
+std::mutex uvgrtp::media_stream_internal::srtcp_map_mutex_;
 
 uvgrtp::media_stream_internal::media_stream_internal(std::string cname, std::string remote_addr,
     std::string local_addr, uint16_t src_port, uint16_t dst_port, rtp_format_t fmt,
@@ -282,6 +286,12 @@ rtp_error_t uvgrtp::media_stream_internal::free_resources(rtp_error_t ret)
         holepuncher_->stop();
     }
 
+    /* Clear our own references first so use_count on the map entries reflects other owners only. */
+    rtcp_ = nullptr;
+    rtp_ = nullptr;
+    srtp_ = nullptr;
+    srtcp_ = nullptr;
+
     rtcp_map_mutex_.lock();
     auto it = rtcp_map_.find(ssrc_->load());
     if (it != rtcp_map_.end()) {
@@ -295,10 +305,33 @@ rtp_error_t uvgrtp::media_stream_internal::free_resources(rtp_error_t ret)
     }
     rtcp_map_mutex_.unlock();
 
-    rtcp_ = nullptr;
-    rtp_ = nullptr;
-    srtp_ = nullptr;
-    srtcp_ = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
+        auto it2 = srtp_map_.find(ssrc_->load());
+        if (it2 != srtp_map_.end()) {
+            size_t count = it2->second.use_count();
+            if (count <= 1) {
+                UVG_LOG_DEBUG("Erasing SRTP map entry for %u (use_count=%zu)", ssrc_->load(), count);
+                srtp_map_.erase(it2);
+            } else {
+                UVG_LOG_DEBUG("Not erasing SRTP map entry for %u, other owners remain (use_count=%zu)", ssrc_->load(), count);
+            }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
+        auto it3 = srtcp_map_.find(ssrc_->load());
+        if (it3 != srtcp_map_.end()) {
+            size_t count = it3->second.use_count();
+            if (count <= 1) {
+                UVG_LOG_DEBUG("Erasing SRTCP map entry for %u (use_count=%zu)", ssrc_->load(), count);
+                srtcp_map_.erase(it3);
+            } else {
+                UVG_LOG_DEBUG("Not erasing SRTCP map entry for %u, other owners remain (use_count=%zu)", ssrc_->load(), count);
+            }
+        }
+    }
     //reception_flow_ = nullptr;
     holepuncher_ = nullptr;
     media_ = nullptr;
@@ -369,8 +402,27 @@ rtp_error_t uvgrtp::media_stream_internal::init(std::shared_ptr<uvgrtp::zrtp> zr
         }
     }
 
-    srtp_ = std::make_shared<uvgrtp::srtp>(rce_flags_);
-    srtcp_ = std::make_shared<uvgrtp::srtcp>();
+    {
+        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
+        if (srtp_map_.find(ssrc_->load()) == srtp_map_.end()) {
+            srtp_ = std::make_shared<uvgrtp::srtp>(rce_flags_);
+            srtp_map_[ssrc_->load()] = srtp_;
+        }
+        else {
+            srtp_ = srtp_map_[ssrc_->load()];
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
+        if (srtcp_map_.find(ssrc_->load()) == srtcp_map_.end()) {
+            srtcp_ = std::make_shared<uvgrtp::srtcp>();
+            srtcp_map_[ssrc_->load()] = srtcp_;
+        }
+        else {
+            srtcp_ = srtcp_map_[ssrc_->load()];
+        }
+    }
 
     socket_->install_handler(ssrc_, rtcp_->pimpl_, rtcp_->pimpl_->send_packet_handler_vec);
 
