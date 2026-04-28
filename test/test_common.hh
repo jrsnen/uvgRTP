@@ -124,16 +124,19 @@ inline void send_packets(std::unique_ptr<uint8_t[]> test_packet, size_t size,
 
             rtp_error_t ret = RTP_OK;
 
-            uint8_t* test_frame = new uint8_t[size];
-            memcpy(test_frame, test_packet.get(), size);
+            std::unique_ptr<uint8_t[]> test_frame = std::unique_ptr<uint8_t[]>(new uint8_t[size]);
+            memcpy(test_frame.get(), test_packet.get(), size);
 
+#if UVGRTP_EXTENDED_API
             if ((ret = sender->push_frame(std::move(test_frame), size, rtp_flags)) != RTP_OK)
+#else
+            int local_flags = rtp_flags | RTP_COPY;
+            if ((ret = sender->push_frame(test_frame.get(), size, local_flags)) != RTP_OK)
+#endif
             {
                 std::cout << "Failed to send test packet! Return value: " << ret << std::endl;
                 return;
             }
-
-            delete[] test_frame;
 
             if (print_progress && packets >= 10 && i % (packets / 10) == packets / 10 - 1)
             {
