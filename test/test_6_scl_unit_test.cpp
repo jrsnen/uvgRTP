@@ -46,6 +46,7 @@ TEST(FormatTests, h264_scl_zero) {
       out = format_26x.find_h26x_start_code(data, DATA_SIZE - offset, out, start_len);
       EXPECT_EQ(-1, (int)out);
     }
+        cleanup_sess(ctx, local_session);
 }
 
 TEST(FormatTests, h264_scl) {
@@ -70,6 +71,7 @@ TEST(FormatTests, h264_scl) {
         EXPECT_EQ(3 + offset, (int)out);
         EXPECT_EQ(3, start_len);
     }
+    cleanup_sess(ctx, local_session);
 }
 
 TEST(FormatTests, h266_scl_zero) {
@@ -107,6 +109,7 @@ TEST(FormatTests, h266_scl_zero) {
         out = format_26x.find_h26x_start_code(data, DATA_SIZE - offset, out, start_len);
         EXPECT_EQ(-1, (int)out);
     }
+        cleanup_sess(ctx, local_session);
 }
 
 TEST(FormatTests, h266_scl) {
@@ -132,6 +135,7 @@ TEST(FormatTests, h266_scl) {
         EXPECT_EQ(4 + offset, (int)out);
         EXPECT_EQ(4, start_len);
     }
+    cleanup_sess(ctx, local_session);
 }
 
 
