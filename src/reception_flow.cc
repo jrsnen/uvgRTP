@@ -739,12 +739,12 @@ rtp_error_t uvgrtp::reception_flow::update_remote_ssrc(uint32_t old_remote_ssrc,
     if (packet_handlers_.find(old_remote_ssrc) != packet_handlers_.end()) {
         handler handlers = packet_handlers_[old_remote_ssrc];
         packet_handlers_.erase(old_remote_ssrc);
-        packet_handlers_.insert({new_remote_ssrc, handlers});
+        packet_handlers_[new_remote_ssrc] = handlers; // overwrite any existing entry
     }
     if (hooks_.find(old_remote_ssrc) != hooks_.end()) {
         receive_pkt_hook hook = hooks_[old_remote_ssrc];
         hooks_.erase(old_remote_ssrc);
-        hooks_.insert({new_remote_ssrc, hook});
+        hooks_[new_remote_ssrc] = hook; // overwrite any existing entry
     }
     return RTP_OK;
 }
