@@ -37,6 +37,8 @@ namespace uvgrtp {
              *  @{
              */
 
+            ~session();
+
             /**
              * \brief Create a uni- or bidirectional media stream
              *
@@ -111,7 +113,6 @@ namespace uvgrtp {
 
         session(std::string cname, std::string addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
         session(std::string cname, std::string remote_addr, std::string local_addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
-        ~session();
 
          /* Get unique key of the session
           * Used by context to index sessions */
