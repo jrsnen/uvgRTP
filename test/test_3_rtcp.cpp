@@ -342,16 +342,18 @@ TEST(RTCPTests, rtcp_multiplex)
     std::cout << "Receiver 2 received " << received4 << " sender reports" << std::endl;
     std::cout << "Sender 1 received " << received1 << " receiver reports" << std::endl;
     std::cout << "Sender 2 received " << received2 << " receiver reports" << std::endl;
-    EXPECT_TRUE(received1 > 0);
-    EXPECT_TRUE(received2 > 0);
-    EXPECT_TRUE(received3 > 0);
-    EXPECT_TRUE(received4 > 0);
+
     cleanup_ms(sender_sess, sender1);
     cleanup_ms(sender_sess, sender2);
     cleanup_ms(receiver_sess, receiver1);
     cleanup_ms(receiver_sess, receiver2);
     cleanup_sess(ctx, sender_sess);
     cleanup_sess(ctx, receiver_sess);
+
+    EXPECT_TRUE(received1 > 0);
+    EXPECT_TRUE(received2 > 0);
+    EXPECT_TRUE(received3 > 0);
+    EXPECT_TRUE(received4 > 0);
 
 }
 
@@ -421,10 +423,7 @@ TEST(RTCPTests, rtcp_multiplex2)
     std::cout << "Receiver 2 received " << received4 << " sender reports" << std::endl;
     std::cout << "Sender 1 received " << received1 << " receiver reports" << std::endl;
     std::cout << "Sender 2 received " << received2 << " receiver reports" << std::endl;
-    EXPECT_TRUE(received1 > 0);
-    EXPECT_TRUE(received2 > 0);
-    EXPECT_TRUE(received3 > 0);
-    EXPECT_TRUE(received4 > 0);
+
     cleanup_ms(sender_sess, sender1);
     cleanup_ms(sender_sess, sender2);
     cleanup_ms(receiver_sess, receiver1);
@@ -432,6 +431,10 @@ TEST(RTCPTests, rtcp_multiplex2)
     cleanup_sess(ctx, sender_sess);
     cleanup_sess(ctx, receiver_sess);
 
+    EXPECT_TRUE(received1 > 0);
+    EXPECT_TRUE(received2 > 0);
+    EXPECT_TRUE(received3 > 0);
+    EXPECT_TRUE(received4 > 0);
 }
 
 
