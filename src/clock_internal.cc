@@ -1,5 +1,3 @@
-#pragma once
-
 #include "clock_internal.hh"
 #include "debug.hh"
 

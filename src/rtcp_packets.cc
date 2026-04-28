@@ -15,6 +15,7 @@ uint32_t uvgrtp::get_sr_packet_size(int rce_flags, uint16_t reports)
 
 uint32_t uvgrtp::get_rr_packet_size(int rce_flags, uint16_t reports)
 {
+    (void)rce_flags;
     return (size_t)RTCP_HEADER_SIZE + SSRC_CSRC_SIZE
         + (size_t)REPORT_BLOCK_SIZE * reports;
 }

@@ -321,8 +321,8 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
     UVG_LOG_INFO("RTCP instance created! Local SSRC: %lu", (unsigned long)rtcp->ssrc_->load());
 
     // RFC 3550 says to wait half interval before sending first report
-    int initial_sleep_ms = rtcp->get_rtcp_interval_ms() / 2;
-    UVG_LOG_DEBUG("Sleeping for %i ms before sending first RTCP report", initial_sleep_ms);
+    uint32_t initial_sleep_ms = rtcp->get_rtcp_interval_ms() / 2;
+    UVG_LOG_DEBUG("Sleeping for %u ms before sending first RTCP report", initial_sleep_ms);
     std::this_thread::sleep_for(std::chrono::milliseconds(initial_sleep_ms));
 
     uint32_t current_interval_ms = rtcp->get_rtcp_interval_ms();
@@ -380,7 +380,7 @@ void uvgrtp::rtcp_internal::rtcp_runner(rtcp_internal* rtcp)
             rtcp->remove_timeout_ssrc(rm);
         }
 
-        int members = rtcp->participants_.size() + 1;
+        int members = static_cast<int>(rtcp->participants_.size()) + 1;
         
         double interval_s = rtcp->rtcp_interval(members, senders, rtcp->rtcp_bandwidth_,
             we_sent, double(rtcp->avg_rtcp_size_), true, true);

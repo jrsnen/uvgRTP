@@ -149,8 +149,8 @@ rtp_error_t uvgrtp::rtcp::install_send_app_hook(
     std::string app_name_str(app_name);
 
     // Convert the C-style function pointer into a std::function
-    auto app_sending_func = [send_hook](uint8_t& subtype, uint32_t& payload_len) -> std::unique_ptr<uint8_t[]> {
-        return std::unique_ptr<uint8_t[]>(send_hook(&subtype, &payload_len, nullptr));
+    auto app_sending_func = [send_hook, user_arg](uint8_t& subtype, uint32_t& payload_len) -> std::unique_ptr<uint8_t[]> {
+        return std::unique_ptr<uint8_t[]>(send_hook(&subtype, &payload_len, user_arg));
         };
 
     // Now call the internal function with the std::string and std::function

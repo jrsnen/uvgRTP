@@ -543,7 +543,6 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                 //sockaddr_in6 from6 = ring_buffer_[ring_read_index_].from6;
                 uint32_t rtp_ssrc = ntohl(*(uint32_t*)&ptr[8]);
                 uint32_t rtcp_ssrc = ntohl(*(uint32_t*)&ptr[4]);
-                bool has_rtcp_handler = false;
 
                 handler* handlers = nullptr;
                 if (packet_handlers_.size() == 1) {
@@ -553,7 +552,6 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                 else if (packet_handlers_.find(rtcp_ssrc) != packet_handlers_.end()) {
                     /* Socket multiplexing: RTCP packet */
                     handlers = &packet_handlers_[rtcp_ssrc];
-                    has_rtcp_handler = true;
                 }
                 else if (packet_handlers_.find(rtp_ssrc) != packet_handlers_.end()) {
                     /* Socket multiplexing: RTP/ZRTP packet */
