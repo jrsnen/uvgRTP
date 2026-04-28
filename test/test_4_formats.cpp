@@ -672,22 +672,24 @@ TEST(FormatTests, h264_aggregation)
     std::vector<size_t> test_sizes = { 100, 200, 300 };
 
     size_t total_size = 0;
-    std::unique_ptr<uint8_t[]> test_frame = std::unique_ptr<uint8_t[]>(new uint8_t[700]);
+    uint8_t* test_frame = new uint8_t[700];
 
     for (auto& size : test_sizes)
     {
         int nal_type = 8;
         std::unique_ptr<uint8_t[]> nal_unit = create_test_packet(format, nal_type, true, size, rtp_flags);
-        memcpy(test_frame.get() + total_size, nal_unit.get(), size);
+        memcpy(test_frame + total_size, nal_unit.get(), size);
         total_size += size;
     }
-    if (sender->push_frame(std::move(test_frame), total_size, RTP_NO_FLAGS) != RTP_OK) {
+    if (sender->push_frame(test_frame, total_size, RTP_NO_FLAGS) != RTP_OK) {
         std::cout << "Failed to send test packet!" << std::endl;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+    delete[] test_frame;
+
     std::cout << "H264: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -719,22 +721,24 @@ TEST(FormatTests, h265_aggregation)
     std::vector<size_t> test_sizes = { 100, 200, 1700, 300, 400};
 
     size_t total_size = 0;
-    std::unique_ptr<uint8_t[]> test_frame = std::unique_ptr<uint8_t[]>(new uint8_t[2700]);
+    uint8_t* test_frame = new uint8_t[2700];
 
     for (auto& size : test_sizes)
     {
         int nal_type = 8;
         std::unique_ptr<uint8_t[]> nal_unit = create_test_packet(format, nal_type, true, size, rtp_flags);
-        memcpy(test_frame.get() + total_size, nal_unit.get(), size);
+        memcpy(test_frame + total_size, nal_unit.get(), size);
         total_size += size;
     }
-    if (sender->push_frame(std::move(test_frame), total_size, RTP_NO_FLAGS) != RTP_OK) {
+    if (sender->push_frame(test_frame, total_size, RTP_NO_FLAGS) != RTP_OK) {
         std::cout << "Failed to send test packet!" << std::endl;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+    delete[] test_frame;
+
     std::cout << "H265: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -766,13 +770,13 @@ TEST(FormatTests, h266_aggregation)
     std::vector<size_t> test_sizes = { 100, 200, 300 };
 
     size_t total_size = 0;
-    std::unique_ptr<uint8_t[]> test_frame = std::unique_ptr<uint8_t[]>(new uint8_t[700]);
+    uint8_t* test_frame = new uint8_t[700];
 
     for (auto& size : test_sizes)
     {
         int nal_type = 8;
         std::unique_ptr<uint8_t[]> nal_unit = create_test_packet(format, nal_type, true, size, rtp_flags);
-        memcpy(test_frame.get() + total_size, nal_unit.get(), size);
+        memcpy(test_frame + total_size, nal_unit.get(), size);
         total_size += size;
     }
     if (sender->push_frame(std::move(test_frame), total_size, RTP_NO_FLAGS) != RTP_OK) {
@@ -780,8 +784,10 @@ TEST(FormatTests, h266_aggregation)
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+    delete[] test_frame;
+
     std::cout << "H266: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);
@@ -813,13 +819,13 @@ TEST(FormatTests, h265_disable_aggr)
     std::vector<size_t> test_sizes = { 100, 200, 300 };
 
     size_t total_size = 0;
-    std::unique_ptr<uint8_t[]> test_frame = std::unique_ptr<uint8_t[]>(new uint8_t[700]);
+    uint8_t* test_frame = new uint8_t[700];
 
     for (auto& size : test_sizes)
     {
         int nal_type = 8;
         std::unique_ptr<uint8_t[]> nal_unit = create_test_packet(format, nal_type, true, size, rtp_flags);
-        memcpy(test_frame.get() + total_size, nal_unit.get(), size);
+        memcpy(test_frame + total_size, nal_unit.get(), size);
         total_size += size;
     }
     if (sender->push_frame(std::move(test_frame), total_size, RTP_H26X_DO_NOT_AGGR) != RTP_OK) {
@@ -827,8 +833,10 @@ TEST(FormatTests, h265_disable_aggr)
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+    delete[] test_frame;
+
     std::cout << "H265: Received/expected: " << aggr_received << "/" << expected << std::endl;
-    ASSERT_TRUE(aggr_received == expected);
+    EXPECT_TRUE(aggr_received == expected);
     cleanup_ms(sess, sender);
     cleanup_ms(sess, receiver);
     cleanup_sess(ctx, sess);

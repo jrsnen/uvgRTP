@@ -15,6 +15,7 @@ project(uvgrtp
 
 include(GNUInstallDirs)
 
+option(UVGRTP_BUILD_SHARED "Build uvgRTP as a shared library" OFF)
 
 option(UVGRTP_DISABLE_CRYPTO "Do not build uvgRTP with crypto enabled" OFF)
 option(UVGRTP_DISABLE_PRINTS "Do not print anything from uvgRTP" OFF)
@@ -44,18 +45,28 @@ if (DISABLE_WERROR)
     set(UVGRTP_DISABLE_WERROR ON)
 endif()
 
+if (UVGRTP_BUILD_SHARED)
+    set(UVGRTP_LIB_TYPE SHARED)
+else()
+    set(UVGRTP_LIB_TYPE STATIC)
+endif()
 
 include(cmake/FindDependencies.cmake)
 include(cmake/Versioning.cmake)
 
-
-add_library(${PROJECT_NAME})
+add_library(${PROJECT_NAME} ${UVGRTP_LIB_TYPE})
 set_target_properties(${PROJECT_NAME} PROPERTIES
         SOVERSION "${PROJECT_VERSION_MAJOR}"
         VERSION "${LIBRARY_VERSION}"
         )
 set(UVGRTP_CXX_FLAGS "")
 set(UVGRTP_LINKER_FLAGS "")
+
+# uvgRTP shared version header generation
+include(cmake/ExportHeaders.cmake)
+include(cmake/Definitions.cmake)
+
+
 
 target_sources(${PROJECT_NAME} PRIVATE
         src/clock.cc
@@ -76,6 +87,10 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/socket.cc
         src/zrtp.cc
         src/holepuncher.cc
+        src/media_stream_internal.cc
+        src/clock_internal.cc
+        src/rtcp_internal.cc
+        src/frame_internal.cc
 
         src/formats/media.cc
         src/formats/h26x.cc
@@ -125,6 +140,10 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/zrtp.hh
         src/frame_queue.hh
         src/memory.hh
+        src/media_stream_internal.hh
+        src/clock_internal.hh
+        src/rtcp_internal.hh
+        src/frame_internal.hh
 
         src/formats/h26x.hh
         src/formats/h264.hh
@@ -169,6 +188,12 @@ target_sources(${PROJECT_NAME} PRIVATE
 
 if(WIN32)
     set(WINLIBS wsock32 ws2_32)
+    
+    if (UVGRTP_BUILD_SHARED)
+        include(cmake/Resource.cmake)
+        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/uvgrtp.rc PROPERTIES LANGUAGE RC)
+        target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/uvgrtp.rc)
+    endif()
 endif()
 
 target_link_libraries(${PROJECT_NAME}
@@ -179,9 +204,10 @@ target_link_libraries(${PROJECT_NAME}
         )
 
 target_include_directories(${PROJECT_NAME}
-        PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include> 
         PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-        PUBLIC $<INSTALL_INTERFACE:include>
+        PUBLIC  $<INSTALL_INTERFACE:include>
         )
 
 if(CMAKE_BUILD_TYPE)

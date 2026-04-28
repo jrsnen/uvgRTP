@@ -1,8 +1,8 @@
 #pragma once
 
-#include "uvgrtp/clock.hh"
 #include "uvgrtp/util.hh"
 
+#include "clock_internal.hh"
 #include <chrono>
 #include <memory>
 #include <atomic>
@@ -64,6 +64,8 @@ namespace uvgrtp {
 
             /* Use custom timestamp for the outgoing RTP packets */
             uint64_t timestamp_;
+
+            bool custom_ntp_;
 
             /* custom NTP timestamp of when the RTP packet was SAMPLED */
             uint64_t sampling_ntp_;

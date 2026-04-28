@@ -377,27 +377,28 @@ void uvgrtp::reception_flow::return_frame(uvgrtp::frame::rtp_frame *frame)
 {
     uint32_t ssrc = frame->header.ssrc;
 
-    // 1. Check if there is only one hook installed -> no socket muxing
-    // 2. Multiple handlers -> check if there exists a hook that this ssrc belongs to
-    // 3. If neither is found, push the frame to the queue
-    if (hooks_.size() == 1) {
-        /* No socket multiplexing: All packets are given to this hook */
+    auto it = hooks_.find(ssrc);
+
+    // Check if there is only one hook installed -> no socket muxing
+    if (hooks_.size() == 1 && hooks_.begin()->second.hook) {
         receive_pkt_hook pkt_hook = hooks_.begin()->second;
         recv_hook hook = pkt_hook.hook;
         void* arg = pkt_hook.arg;
+
         hook(arg, frame);
     }
-    else if (hooks_.find(ssrc) != hooks_.end()) {
-        /* Socket multiplexing: Hook found */
-        receive_pkt_hook pkt_hook = hooks_[ssrc];
+    // Multiple handlers -> check if there exists a hook that this ssrc belongs to
+    else if (it != hooks_.end() && it->second.hook) {
+        receive_pkt_hook pkt_hook = it->second;
         recv_hook hook = pkt_hook.hook;
         void* arg = pkt_hook.arg;
+
         hook(arg, frame);
     }
+    // If neither is found, push the frame to the queue
     else {
-        frames_mtx_.lock();
+        std::lock_guard<std::mutex> lg(frames_mtx_);
         frames_.push_back(frame);
-        frames_mtx_.unlock();
     }
 }
 /* User packets disabled for now
@@ -517,6 +518,14 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
 
             if (ring_buffer_[ring_read_index_].read > 0)
             {
+                if (ring_buffer_[ring_read_index_].read < 12)
+                {
+                    UVG_LOG_DEBUG("Ignoring packet: too small to be RTP/RTCP (size: %zu)", ring_buffer_[ring_read_index_].read);
+                    ring_buffer_[ring_read_index_].read = 0;
+                    ++processed_packets;
+                    continue;
+                }
+
                 /* When processing a packet, the following checks are done
                  * 1. If there is only a single set of handlers installed, there is no socket multiplexing. All packets
                  *    to to this handler
@@ -534,7 +543,7 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                 //sockaddr_in6 from6 = ring_buffer_[ring_read_index_].from6;
                 uint32_t rtp_ssrc = ntohl(*(uint32_t*)&ptr[8]);
                 uint32_t rtcp_ssrc = ntohl(*(uint32_t*)&ptr[4]);
-                bool rtcp_pkt = false;
+                bool has_rtcp_handler = false;
 
                 handler* handlers = nullptr;
                 if (packet_handlers_.size() == 1) {
@@ -544,7 +553,7 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                 else if (packet_handlers_.find(rtcp_ssrc) != packet_handlers_.end()) {
                     /* Socket multiplexing: RTCP packet */
                     handlers = &packet_handlers_[rtcp_ssrc];
-                    rtcp_pkt = true;
+                    has_rtcp_handler = true;
                 }
                 else if (packet_handlers_.find(rtp_ssrc) != packet_handlers_.end()) {
                     /* Socket multiplexing: RTP/ZRTP packet */
@@ -554,32 +563,31 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                 uint8_t version = (*(uint8_t*)&ptr[0] >> 6) & 0x3;
 
                 if (handlers != nullptr) {
-                    /* SSRC match or SSRC 0 is found -> call handlers */
                     rtp_error_t retval;
                     uvgrtp::frame::rtp_frame* frame = nullptr;
 
-                    /* -------------------- Protocol checks -------------------- */
-                    /* Checks in the following order:
-                     * 1. SSRC is in octets 4-7                         -> RTCP packet
-                     * 2. Version 0 and Magic Cookie is 0x5a525450      -> ZRTP packet
-                     * 3. Version is 2                                  -> RTP packet     (or SRTP)
-                     * 4. Version is 3                                  -> Keep-Alive/Holepuncher 
-                     * 5. Otherwise                                     -> User packet, DISABLED */
-                    if (rtcp_pkt && (rce_flags & RCE_RTCP_MUX)) {
-                        uint8_t pt = (uint8_t)ptr[1]; // Packet type
-                        if (pt >= 200 && pt <= 204) {
-                            if (handlers->rtcp.handler != nullptr) {
-                                retval = handlers->rtcp.handler(nullptr, rce_flags, &ptr[0], size, &frame);
-                            }
+                    uint8_t rtp_payload_type = (uint8_t)(ptr[1] & 0x7F); // 0 - 127, excluding 72-76 (reserved for RTCP)
+                    uint8_t rtcp_packet_type = (uint8_t)ptr[1]; // 200 - 204 for SR, RR, SDES, BYE, APP
+                    uint16_t rtcp_length = ntohs(*(uint16_t*)&ptr[2]); // length in 32-bit words minus one
+                    uint32_t zrtp_magic_cookie = ntohl(*(uint32_t*)&ptr[4]); // ZRTP magic cookie 0x5A525450
+
+                    if (rtcp_packet_type >= 200 && rtcp_packet_type <= 204 && size >= ((uint32_t)rtcp_length + 1) * 4) { // RTCP, RFC 3550
+                        if ((rce_flags & RCE_RTCP_MUX && handlers->rtcp.handler != nullptr)) {
+                            retval = handlers->rtcp.handler(nullptr, rce_flags, &ptr[0], size, &frame);
+                        }
+                        else {
+                            UVG_LOG_WARN("Received RTCP packet but RTCP MUX is not enabled or handler not installed");
                         }
                     }
-                    // Magic Cookie 0x5a525450
-                    else if (version == 0x0 && ntohl(*(uint32_t*)&ptr[4]) == 0x5a525450) {
+                    else if (version == 0x0 && zrtp_magic_cookie == 0x5A525450) { // ZRTP, RFC 6189
                         if (handlers->zrtp.handler != nullptr) {
                             retval = handlers->zrtp.handler(nullptr, rce_flags, &ptr[0], size, &frame);
                         }
+                        else {
+                            UVG_LOG_DEBUG("ZRTP packet received but no ZRTP handler installed for this SSRC");
+                        }
                     }
-                    else if (version == 0x2) {
+                    else if (version == 0x2 && (rtp_payload_type < 72 || 76 < rtp_payload_type)) { // RTP, RFC 3550
                         retval = RTP_PKT_MODIFIED;
 
                         /* Create RTP header */
@@ -604,7 +612,10 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                         /* Update RTCP session statistics */
                         if (rce_flags & RCE_RTCP) {
                             if (handlers->rtcp_common.handler != nullptr) {
-                                retval = handlers->rtcp_common.handler(handlers->rtcp_common.args, rce_flags, &ptr[0], size, &frame);
+                                rtp_error_t rtcp_ret = handlers->rtcp_common.handler(handlers->rtcp_common.args, rce_flags, &ptr[0], size, &frame);
+                                if (retval != RTP_PKT_READY && retval != RTP_MULTIPLE_PKTS_READY) {
+                                    retval = rtcp_ret;
+                                }
                             }
                         }
 
@@ -628,6 +639,11 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                     else if (version == 0x3) {
                         UVG_LOG_DEBUG("Holepuncher packet");
                     }
+                    else
+                    {
+                        UVG_LOG_DEBUG("Unrecognized packet, version: %x", version);
+                    }
+                    
                     /* DISABLED else {
                         return_user_pkt(&ptr[0], (uint32_t)size);
                     }*/
@@ -723,12 +739,12 @@ rtp_error_t uvgrtp::reception_flow::update_remote_ssrc(uint32_t old_remote_ssrc,
     if (packet_handlers_.find(old_remote_ssrc) != packet_handlers_.end()) {
         handler handlers = packet_handlers_[old_remote_ssrc];
         packet_handlers_.erase(old_remote_ssrc);
-        packet_handlers_.insert({new_remote_ssrc, handlers});
+        packet_handlers_[new_remote_ssrc] = handlers; // overwrite any existing entry
     }
     if (hooks_.find(old_remote_ssrc) != hooks_.end()) {
         receive_pkt_hook hook = hooks_[old_remote_ssrc];
         hooks_.erase(old_remote_ssrc);
-        hooks_.insert({new_remote_ssrc, hook});
+        hooks_[new_remote_ssrc] = hook; // overwrite any existing entry
     }
     return RTP_OK;
 }

@@ -1,5 +1,7 @@
 #include "test_common.hh"
 
+#include "uvgrtp/frame.hh"
+
 constexpr char LOCAL_INTERFACE[] = "127.0.0.1";
 constexpr char LOCAL_INTERFACE_IP6[] = "::1";
 constexpr uint16_t LOCAL_PORT = 9200;
@@ -14,6 +16,10 @@ constexpr uint16_t FRAME_RATE = 30;
 constexpr uint32_t EXAMPLE_RUN_TIME_S = 3;
 constexpr int SEND_TEST_PACKETS = FRAME_RATE * EXAMPLE_RUN_TIME_S;
 constexpr int PACKET_INTERVAL_MS = 1000 / FRAME_RATE;
+
+
+// TODO: upgrade RTCP tests to use the core API
+#if UVGRTP_EXTENDED_API
 
 void receiver_hook(uvgrtp::frame::rtcp_receiver_report* frame);
 void sender_hook(uvgrtp::frame::rtcp_sender_report* frame);
@@ -336,16 +342,18 @@ TEST(RTCPTests, rtcp_multiplex)
     std::cout << "Receiver 2 received " << received4 << " sender reports" << std::endl;
     std::cout << "Sender 1 received " << received1 << " receiver reports" << std::endl;
     std::cout << "Sender 2 received " << received2 << " receiver reports" << std::endl;
-    ASSERT_TRUE(received1 > 0);
-    ASSERT_TRUE(received2 > 0);
-    ASSERT_TRUE(received3 > 0);
-    ASSERT_TRUE(received4 > 0);
+
     cleanup_ms(sender_sess, sender1);
     cleanup_ms(sender_sess, sender2);
     cleanup_ms(receiver_sess, receiver1);
     cleanup_ms(receiver_sess, receiver2);
     cleanup_sess(ctx, sender_sess);
     cleanup_sess(ctx, receiver_sess);
+
+    EXPECT_TRUE(received1 > 0);
+    EXPECT_TRUE(received2 > 0);
+    EXPECT_TRUE(received3 > 0);
+    EXPECT_TRUE(received4 > 0);
 
 }
 
@@ -415,10 +423,7 @@ TEST(RTCPTests, rtcp_multiplex2)
     std::cout << "Receiver 2 received " << received4 << " sender reports" << std::endl;
     std::cout << "Sender 1 received " << received1 << " receiver reports" << std::endl;
     std::cout << "Sender 2 received " << received2 << " receiver reports" << std::endl;
-    ASSERT_TRUE(received1 > 0);
-    ASSERT_TRUE(received2 > 0);
-    ASSERT_TRUE(received3 > 0);
-    ASSERT_TRUE(received4 > 0);
+
     cleanup_ms(sender_sess, sender1);
     cleanup_ms(sender_sess, sender2);
     cleanup_ms(receiver_sess, receiver1);
@@ -426,6 +431,10 @@ TEST(RTCPTests, rtcp_multiplex2)
     cleanup_sess(ctx, sender_sess);
     cleanup_sess(ctx, receiver_sess);
 
+    EXPECT_TRUE(received1 > 0);
+    EXPECT_TRUE(received2 > 0);
+    EXPECT_TRUE(received3 > 0);
+    EXPECT_TRUE(received4 > 0);
 }
 
 
@@ -563,3 +572,5 @@ void cleanup(uvgrtp::context& ctx, uvgrtp::session* local_session, uvgrtp::sessi
     cleanup_sess(ctx, local_session);
     cleanup_sess(ctx, remote_session);
 }
+
+#endif

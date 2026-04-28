@@ -1,6 +1,6 @@
 #include "rtcp_packets.hh"
 
-#include "srtp/srtcp.hh"
+#include "srtp/base.hh"
 
 #include "debug.hh"
 #include <memory>
@@ -15,14 +15,17 @@ uint32_t uvgrtp::get_sr_packet_size(int rce_flags, uint16_t reports)
 
 uint32_t uvgrtp::get_rr_packet_size(int rce_flags, uint16_t reports)
 {
-    uint32_t size = (size_t)RTCP_HEADER_SIZE + SSRC_CSRC_SIZE
+    return (size_t)RTCP_HEADER_SIZE + SSRC_CSRC_SIZE
         + (size_t)REPORT_BLOCK_SIZE * reports;
-    if (rce_flags & RCE_SRTP)
-    {
-        size += UVG_SRTCP_INDEX_LENGTH + UVG_AUTH_TAG_LENGTH;
-    }
+}
 
-    return size;
+uint32_t uvgrtp::get_security_overhead_size(int rce_flags)
+{
+  if (rce_flags & RCE_SRTP)
+  {
+    return UVG_SRTCP_INDEX_LENGTH + UVG_AUTH_TAG_LENGTH;
+  }
+  return 0;
 }
 
 uint32_t uvgrtp::get_app_packet_size(uint32_t payload_len)
@@ -30,7 +33,7 @@ uint32_t uvgrtp::get_app_packet_size(uint32_t payload_len)
     return RTCP_HEADER_SIZE + SSRC_CSRC_SIZE + APP_NAME_SIZE + payload_len;
 }
 
-uint32_t uvgrtp::get_sdes_packet_size(const std::vector<uvgrtp::frame::rtcp_sdes_item>& items) {
+uint32_t uvgrtp::get_sdes_packet_size(const std::map<uint8_t, uvgrtp::frame::rtcp_sdes_item>& items) {
     /* We currently only support having one source. If uvgRTP is used in a mixer, multiple sources
      * should be supported in SDES packet. */
 
@@ -38,12 +41,12 @@ uint32_t uvgrtp::get_sdes_packet_size(const std::vector<uvgrtp::frame::rtcp_sdes
     frame_size += (uint32_t)items.size() * 2; /* sdes item type + length, both take one byte */
     for (auto& item : items)
     {
-        frame_size += item.length;
+        frame_size += item.second.length;
     }
 
-    /* each chunk must end to a zero octet so 4 zeros is only option
-     * if the length matches 32-bits multiples */
-    frame_size += (4 - frame_size % 4);
+    /* Each SDES chunk is be terminated by a single END (0) octet. */
+    frame_size += 1; /* END octet */
+    frame_size += (4 - (frame_size % 4)) % 4;
 
     return frame_size;
 }
@@ -144,7 +147,13 @@ bool uvgrtp::construct_sdes_chunk(uint8_t* frame, size_t& ptr,
         ptr += item.length;
     }
 
-    ptr += (4 - ptr % 4);
+    /* Explicitly write the END octet to mark the end of the chunk's items.
+     * After the END octet, add zero octets as padding up to the next
+     * 32-bit boundary. We use a modulo-safe expression so no padding is
+     * added when already aligned. Writing the END octet here makes the
+     * packet layout explicit and avoids depending on an external memset. */
+    frame[ptr++] = 0; /* END */
+    ptr += (4 - (ptr % 4)) % 4;
 
     if (!have_cname)
     {

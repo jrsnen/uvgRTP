@@ -1,6 +1,8 @@
 #pragma once
 
 #include "util.hh"
+#include "uvgrtp/export.hh"
+#include "uvgrtp/definitions.hh"
 
 #include <mutex>
 #include <string>
@@ -13,6 +15,7 @@ namespace uvgrtp {
     class media_stream;
     class zrtp;
     class socketfactory;
+    class session_impl;
 
     /** \brief Provides ZRTP synchronization and can be used to create uvgrtp::media_stream objects
      *
@@ -24,13 +27,17 @@ namespace uvgrtp {
      * which can be created by session. media_stream corresponds to an RTP session in RFC 3550.
      */
 
-    class session {
+    class UVGRTP_EXPORT session {
+        /// \cond DO_NOT_DOCUMENT
+        friend class context;
+        /// \endcond
         public:
-            /// \cond DO_NOT_DOCUMENT
-            session(std::string cname, std::string addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
-            session(std::string cname, std::string remote_addr, std::string local_addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
+
+            /** \ingroup CORE_API
+             *  @{
+             */
+
             ~session();
-            /// \endcond
 
             /**
              * \brief Create a uni- or bidirectional media stream
@@ -60,7 +67,7 @@ namespace uvgrtp {
              * \retval uvgrtp::media_stream*  On success
              * \retval nullptr                On failure, see print and 
              */
-            uvgrtp::media_stream *create_stream(uint16_t src_port, uint16_t dst_port, rtp_format_t fmt, int rce_flags);
+            uvgrtp::media_stream *create_stream(uint16_t src_port, uint16_t dst_port, rtp_format_t fmt, int rce_flags, uint32_t local_ssrc = 0);
 
             /**
              * \brief Create a unidirectional media_stream for an RTP session
@@ -100,31 +107,18 @@ namespace uvgrtp {
              */
             rtp_error_t destroy_stream(uvgrtp::media_stream *stream);
 
-            /// \cond DO_NOT_DOCUMENT
-            /* Get unique key of the session
-             * Used by context to index sessions */
-            std::string& get_key();
-            /// \endcond
+            /** @} */  // End of CORE_API group
 
-        private:
-            /* Each RTP multimedia session shall have one ZRTP session from which all session are derived */
-            std::shared_ptr<uvgrtp::zrtp> zrtp_;
+    private:
 
-            std::string generic_address_;
+        session(std::string cname, std::string addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
+        session(std::string cname, std::string remote_addr, std::string local_addr, std::shared_ptr<uvgrtp::socketfactory> sfp);
 
-            /* Each RTP multimedia session is always IP-specific */
-            std::string remote_address_;
+         /* Get unique key of the session
+          * Used by context to index sessions */
+        std::string& get_key();
 
-            /* If user so wishes, the session can be bound to a certain interface */
-            std::string local_address_;
-
-            /* All media streams of this session */
-            std::unordered_map<uint32_t, uvgrtp::media_stream *> streams_;
-
-            std::mutex session_mtx_;
-
-            std::string cname_;
-            std::shared_ptr<uvgrtp::socketfactory> sf_;
+        session_impl* pimpl_;
     };
 }
 
