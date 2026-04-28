@@ -260,13 +260,13 @@ bool uvgrtp::socketfactory::clear_port(uint16_t port, std::shared_ptr<uvgrtp::so
     }
 
     // Erase port mapping only if it matches the provided socket
-    if (port != 0) {
+    if (port != 0 && socket != nullptr) {
         auto up = port_to_socket_.find(port);
         if (up != port_to_socket_.end() && up->second == socket) {
             port_to_socket_.erase(up);
         }
         else {
-            UVG_LOG_WARN("Attempted to clear port %u from socketfactory, but port is not mapped to the provided socket", port);
+            UVG_LOG_DEBUG("Attempted to clear port %u from socketfactory, but port is not mapped to the provided socket", port);
         }
     }
 
