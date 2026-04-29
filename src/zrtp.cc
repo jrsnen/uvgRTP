@@ -953,6 +953,9 @@ rtp_error_t uvgrtp::zrtp::packet_handler(void* args, int rce_flags, uint8_t* rea
     (void)rce_flags;
     (void)out;
 
+    if (out)
+        *out = nullptr;
+
     auto msg = (uvgrtp::zrtp_msg::zrtp_msg*)read_ptr;
 
     /* not a ZRTP packet */

@@ -684,6 +684,7 @@ rtp_error_t uvgrtp::formats::h26x::packet_handler(void* args, int rce_flags, uin
         UVG_LOG_DEBUG("Received an RTP packet belonging to an old, dropped access unit! Timestamp: %u, seq: %u",
             frame->header.timestamp, frame->header.seq);
         (void)uvgrtp::frame::dealloc_frame(frame); // free fragment memory
+        *out = nullptr;
         return RTP_GENERIC_ERROR;
     }
     

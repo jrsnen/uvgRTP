@@ -308,6 +308,7 @@ rtp_error_t uvgrtp::rtp::packet_handler(void* args, int rce_flags, uint8_t* pack
         if ((ssize_t)((*out)->payload_len - (*out)->header.cc * sizeof(uint32_t)) < 0) {
             UVG_LOG_DEBUG("Invalid frame length, %d CSRC entries, total length %zu", (*out)->header.cc, (*out)->payload_len);
             (void)uvgrtp::frame::dealloc_frame(*out);
+            *out = nullptr;
             return RTP_GENERIC_ERROR;
         }
         UVG_LOG_DEBUG("Allocating %u CSRC entries", (*out)->header.cc);
@@ -341,6 +342,7 @@ rtp_error_t uvgrtp::rtp::packet_handler(void* args, int rce_flags, uint8_t* pack
 
         if (!padding_len || (*out)->payload_len <= padding_len) {
             uvgrtp::frame::dealloc_frame(*out);
+            *out = nullptr;
             return RTP_GENERIC_ERROR;
         }
 

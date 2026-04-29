@@ -27,10 +27,16 @@ uvgrtp::zrtp_msg::zrtp_message::~zrtp_message()
     //UVG_LOG_DEBUG("Freeing zrtp message...");
 
     if (frame_)
+    {
         (void)uvgrtp::frame::dealloc_frame((uvgrtp::frame::zrtp_frame*)frame_);
+        frame_ = nullptr;
+    }
 
     if (rframe_)
+    {
         (void)uvgrtp::frame::dealloc_frame((uvgrtp::frame::zrtp_frame*)rframe_);
+        rframe_ = nullptr;
+    }
 }
 
 rtp_error_t uvgrtp::zrtp_msg::zrtp_message::send_msg(std::shared_ptr<uvgrtp::socket> socket, sockaddr_in& addr, sockaddr_in6& addr6)
