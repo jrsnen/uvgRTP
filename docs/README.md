@@ -16,6 +16,10 @@ If RTCP has been enabled, and `uvgrtp::rtcp` object is available from the `uvgrt
 
 Find the full documentation for uvgRTP's public API [here](https://ultravideo.github.io/uvgRTP/html/index.html).
 
+## API levels: Core API and Extended API
+
+The library exposes two API levels. The Core API is a C-style, ABI-stable interface that is always available; and is the only API provided by shared/dynamic builds (.dll and .so). The Extended API uses C++ features such as std::string and std::unique_ptr, but is only available in static builds of uvgRTP. We recommend the Core API.
+
 ## Supported media formats
 
 ### Formats with packetization support:

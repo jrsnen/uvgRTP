@@ -44,7 +44,7 @@ The shared version of uvgRTP can be built using the following CMake parameter:
 cmake -DUVGRTP_BUILD_SHARE=ON ..
 ```
 
-Note: The shared version is only limited to the *Application Binary Interface (ABI)* stable **Core API** of uvgRTP.
+Note: The shared version offers only the *Application Binary Interface (ABI)* stable **Core API**.
 
 ### Visual Studio compilation
 

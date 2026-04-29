@@ -1,9 +1,12 @@
 # Step-by-Step Usage Tutorial
 
-To use uvgRTP, you can either include files individually from the include-folder or use lib.hh to include all necessary files with one line:
+To use uvgRTP, include files from the include-folder:
 
 ```
-#include <uvgrtp/lib.hh>
+#include <uvgrtp/context.hh>
+#include <uvgrtp/session.hh>
+#include <uvgrtp/media_stream.hh>
+#include <uvgrtp/frame.hh>
 ```
 
 ### Step 1: Create context
@@ -20,11 +23,12 @@ Next, you will use the uvgrtp::context object to create uvgrtp::session objects.
 ```
 uvgrtp::session *sess = ctx.create_session("10.10.10.2");
 ```
-or 2) specify two addresses as a pair. First local address, then remote address:
+or 2) specify two addresses. First local address, then remote address:
 
 ```
-std::pair<std::string, std::string> addresses("10.10.10.3", "10.10.10.2");
-uvgrtp::session *sess = ctx.create_session(addresses);
+const char *local  = "10.10.10.3";
+const char *remote = "10.10.10.2";
+uvgrtp::session *sess = ctx.create_session(local, remote);
 ```
 Mixing IPv4 and IPv6 addresses is not possible.
 
@@ -56,12 +60,12 @@ The flags start with prefix `RCC_` and the rest of the flags can be found in the
 
 ### Step 4: Sending data
 
-Sending can be done by simple calling push_frame()-function on created uvgrtp::media_stream:
+Sending can be done by calling `push_frame()` on the created `uvgrtp::media_stream`:
 
 ```
 strm->push_frame((uint8_t *)message, msg_len, RTP_NO_FLAGS);
 ```
-See the sending example for more details. uvgRTP does not take ownership of the memory unless the data is provided with std::unique_ptr.
+See the sending example for more details. uvgRTP does not take ownership of the memory unless you are using the extended API that offers std::unique_ptr data type.
 
 ### Step 5: Receiving data
 
@@ -92,7 +96,9 @@ ctx.destroy_session(sess);
 ### Simple sending example (non-working)
 
 ```
-#include <uvgrtp/lib.hh>
+#include <uvgrtp/context.hh>
+#include <uvgrtp/media_stream.hh>
+#include <uvgrtp/frame.hh>
 
 /* g++ main.cc -luvgrtp -lpthread && ./a.out */
 
@@ -103,14 +109,14 @@ int main(void)
 
     uvgrtp::media_stream *strm = sess->create_stream(8888, 8888, RTP_FORMAT_GENERIC, RCE_NO_FLAGS);
 
-    strm->configure_ctx(RCC_MTU_SIZE, 2312);
+    strm->configure_ctx(RCC_MTU_SIZE, 1200);
 
-    char *message  = (char *)"Hello, world!";
+    const char *message  = "Hello, world!";
     size_t msg_len = strlen(message) + 1;
 
     for (;;) {
         strm->push_frame((uint8_t *)message, msg_len, RTP_NO_FLAGS);
-        auto frame = strm->pull_frame();
+        uvgrtp::frame::rtp_frame *frame = strm->pull_frame();
         fprintf(stderr, "Message: '%s'\n", frame->payload);
         uvgrtp::frame::dealloc_frame(frame);
     }
