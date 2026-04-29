@@ -51,19 +51,20 @@ int main(void)
          * a file or a real-time encoded stream */
         for (int i = 0; i < AMOUNT_OF_TEST_PACKETS; ++i)
         {
-            std::unique_ptr<uint8_t[]> dummy_frame = std::unique_ptr<uint8_t[]>(new uint8_t[PAYLOAD_LEN]);
-            memset(dummy_frame.get(), 'a', PAYLOAD_LEN); // NAL payload
-            memset(dummy_frame.get(),     0, 3);
-            memset(dummy_frame.get() + 3, 1, 1);
-            memset(dummy_frame.get() + 4, 1, (19 << 1)); // Intra frame NAL type
+            uint8_t *dummy_frame = new uint8_t[PAYLOAD_LEN];
+            memset(dummy_frame, 'a', PAYLOAD_LEN); // NAL payload
+            memset(dummy_frame,     0, 3);
+            memset(dummy_frame + 3, 1, 1);
+            memset(dummy_frame + 4, 1, (19 << 1)); // Intra frame NAL type
 
             if ((i+1)%10  == 0 || i == 0) // print every 10 frames and first
                 std::cout << "Sending frame " << i + 1 << '/' << AMOUNT_OF_TEST_PACKETS << std::endl;
 
-            if (hevc->push_frame(std::move(dummy_frame), PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
+            if (hevc->push_frame(dummy_frame, PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
             {
                 std::cout << "Failed to send RTP frame!" << std::endl;
             }
+            delete [] dummy_frame;
         }
 
          std::cout << "Sending finished. Waiting "<< END_WAIT.count()

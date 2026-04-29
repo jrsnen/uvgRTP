@@ -128,15 +128,6 @@ void sender_function(uvgrtp::session* sender_session, int flags, std::shared_ptr
         for (int i = 0; std::chrono::steady_clock::now() < (start + EXAMPLE_RUN_TIME_S); ++i)
         {
 
-            std::unique_ptr<uint8_t[]> dummy_frame = std::unique_ptr<uint8_t[]>(new uint8_t[payload_size]);
-
-            if (format == RTP_FORMAT_H265 && payload_size >= 5)
-            {
-                memset(dummy_frame.get(), 'a', payload_size); // data
-                memset(dummy_frame.get(), 0, 3);
-                memset(dummy_frame.get() + 3, 1, 1);
-                memset(dummy_frame.get() + 4, 1, (19 << 1)); // Intra frame NAL type
-            }
             /* When sending data with the push_frame() function, note the following parameters:
              * 
              * ts: RTP timestamp defined in RFC 3550 5.1. Several consecutive RTP packets
@@ -151,11 +142,22 @@ void sender_function(uvgrtp::session* sender_session, int flags, std::shared_ptr
              * When you wish to synchronize multiple streams together, you SHOULD manually give both these parameters. It
              * is possible to let RTP set them automatically, however that is not recommended. */
 
+            uint8_t *dummy_frame = new uint8_t[payload_size];
+
+            if (format == RTP_FORMAT_H265 && payload_size >= 5)
+            {
+                memset(dummy_frame, 'a', payload_size); // data
+                memset(dummy_frame, 0, 3);
+                memset(dummy_frame + 3, 1, 1);
+                memset(dummy_frame + 4, 1, (19 << 1)); // Intra frame NAL type
+            }
+
             uint64_t clock_ntp = uvgrtp::clock::ntp::now();
-            if (sender_audio_strm->push_frame(std::move(dummy_frame), payload_size, ts, clock_ntp, RTP_NO_FLAGS) != RTP_OK)
+            if (sender_audio_strm->push_frame(dummy_frame, payload_size, ts, clock_ntp, RTP_NO_FLAGS) != RTP_OK)
             {
                 std::cerr << "Failed to send frame" << std::endl;
             }
+            delete [] dummy_frame;
             ts += 1;
 
             // wait until it is time to send the next frame. Included only for

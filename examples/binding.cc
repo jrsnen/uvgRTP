@@ -74,19 +74,20 @@ int main(void)
             std::cout << "Sending frame " << i + 1 << '/' << AMOUNT_OF_PACKETS << std::endl;
 
             // uvgRTP mandates the existance of NAL units so we fake some
-            std::unique_ptr<uint8_t[]> dummy_frame =
-                std::unique_ptr<uint8_t[]>(new uint8_t[PAYLOAD_LEN]);
-            memset(dummy_frame.get(), 'a', PAYLOAD_LEN); // payload
-            memset(dummy_frame.get(),     0, 3);
-            memset(dummy_frame.get() + 3, 1, 1);
-            memset(dummy_frame.get() + 4, 1, (19 << 1)); // Intra frame NAL type
+            uint8_t *dummy_frame = new uint8_t[PAYLOAD_LEN];
+            memset(dummy_frame, 'a', PAYLOAD_LEN); // payload
+            memset(dummy_frame,     0, 3);
+            memset(dummy_frame + 3, 1, 1);
+            memset(dummy_frame + 4, 1, (19 << 1)); // Intra frame NAL type
 
-            if (send->push_frame(std::move(dummy_frame), PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
+            if (send->push_frame(dummy_frame, PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
             {
                 std::cerr << "Failed to send frame" << std::endl;
+                delete [] dummy_frame;
                 cleanup(rtp_ctx, sending_session, receiving_session, send, recv);
                 return EXIT_FAILURE;
             }
+            delete [] dummy_frame;
 
             /* Send frames at constant intervals. This example makes sure the frames are
              * sent exactly at the right time by calculating the timeslots for each frame.

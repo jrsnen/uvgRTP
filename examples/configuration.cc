@@ -106,21 +106,23 @@ int main(void)
 
         for (int i = 0; i < SEND_TEST_PACKETS; ++i)
         {
-            auto buffer = std::unique_ptr<uint8_t[]>(new uint8_t[PAYLOAD_LEN]);
-            memset(buffer.get(), 'a', PAYLOAD_LEN);
-            memset(buffer.get(),     0, 3);
-            memset(buffer.get() + 3, 1, 1);
-            memset(buffer.get() + 4, 1, (19 << 1)); // Intra frame
+            uint8_t *buffer = new uint8_t[PAYLOAD_LEN];
+            memset(buffer, 'a', PAYLOAD_LEN);
+            memset(buffer,     0, 3);
+            memset(buffer + 3, 1, 1);
+            memset(buffer + 4, 1, (19 << 1)); // Intra frame
 
             if ((i+1)%10  == 0 || i == 0) // print every 10 frames and first
                 std::cout << "Sending frame " << i + 1 << '/' << SEND_TEST_PACKETS << std::endl;
 
-            if (send->push_frame(std::move(buffer), PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
+            if (send->push_frame(buffer, PAYLOAD_LEN, RTP_NO_FLAGS) != RTP_OK)
             {
                 std::cerr << "Failed to send RTP frame!" << std::endl;
+                delete [] buffer;
                 cleanup(ctx, local_session, remote_session, send, receive);
                 return EXIT_FAILURE;
             }
+            delete [] buffer;
         }
     }
 

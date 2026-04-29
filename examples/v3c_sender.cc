@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <thread>
 
 constexpr char LOCAL_IP[] = "127.0.0.1";
 
@@ -84,41 +85,17 @@ int main(int argc, char* argv[])
     int flags = 0;
     v3c_streams streams = init_v3c_streams(sess, 8892, 8890, flags, false);
 
-    /* Start sending data */
-    std::unique_ptr<std::thread> vps_thread =
-        std::unique_ptr<std::thread>(new std::thread(sender_func, streams.vps, cbuf.get(), mmap.vps_units, RTP_NO_FLAGS, V3C_VPS));
+    /* Start sending data concurrently using threads */
+    std::vector<std::thread> threads;
+    threads.emplace_back(sender_func, streams.vps, cbuf.get(), std::ref(mmap.vps_units), RTP_NO_FLAGS, V3C_VPS);
+    threads.emplace_back(sender_func, streams.ad,  cbuf.get(), std::ref(mmap.ad_units),  RTP_NO_FLAGS, V3C_AD);
+    threads.emplace_back(sender_func, streams.ovd, cbuf.get(), std::ref(mmap.ovd_units), RTP_NO_H26X_SCL, V3C_OVD);
+    threads.emplace_back(sender_func, streams.gvd, cbuf.get(), std::ref(mmap.gvd_units), RTP_NO_H26X_SCL, V3C_GVD);
+    threads.emplace_back(sender_func, streams.avd, cbuf.get(), std::ref(mmap.avd_units), RTP_NO_H26X_SCL, V3C_AVD);
 
-    std::unique_ptr<std::thread> ad_thread =
-        std::unique_ptr<std::thread>(new std::thread(sender_func, streams.ad, cbuf.get(), mmap.ad_units, RTP_NO_FLAGS, V3C_AD));
-
-    std::unique_ptr<std::thread> ovd_thread =
-        std::unique_ptr<std::thread>(new std::thread(sender_func, streams.ovd, cbuf.get(), mmap.ovd_units, RTP_NO_H26X_SCL, V3C_OVD));
-
-    std::unique_ptr<std::thread> gvd_thread =
-        std::unique_ptr<std::thread>(new std::thread(sender_func, streams.gvd, cbuf.get(), mmap.gvd_units, RTP_NO_H26X_SCL, V3C_GVD));
-
-    std::unique_ptr<std::thread> avd_thread =
-        std::unique_ptr<std::thread>(new std::thread(sender_func, streams.avd, cbuf.get(), mmap.avd_units, RTP_NO_H26X_SCL, V3C_AVD));
-
-    if (vps_thread && vps_thread->joinable())
-    {
-        vps_thread->join();
-    }
-    if (ad_thread && ad_thread->joinable())
-    {
-        ad_thread->join();
-    }
-    if (ovd_thread && ovd_thread->joinable())
-    {
-        ovd_thread->join();
-    }
-    if (gvd_thread && gvd_thread->joinable())
-    {
-        gvd_thread->join();
-    }
-    if (avd_thread && avd_thread->joinable())
-    {
-        avd_thread->join();
+    for (auto &t : threads) {
+        if (t.joinable())
+            t.join();
     }
 
     sess->destroy_stream(streams.vps);
