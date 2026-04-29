@@ -33,8 +33,21 @@ namespace uvgrtp {
      */
     uint16_t UVGRTP_EXPORT get_version_patch();
 
-    /** @} */
+    /**
+     * \brief Get the full version string of uvgRTP as a C string
+     *
+     * \return Pointer to a null-terminated version string (lifetime: static)
+     */
+    const char* UVGRTP_EXPORT get_version_cstr();
 
+    /**
+     * \brief Get the Git commit hash of the uvgRTP build as a C string
+     *
+     * \return Pointer to a null-terminated git-hash string (lifetime: static)
+     */
+    const char* UVGRTP_EXPORT get_git_hash_cstr();
+
+    /** @} */
 
 #if UVGRTP_EXTENDED_API
 
