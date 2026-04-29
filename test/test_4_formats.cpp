@@ -38,7 +38,7 @@ TEST(FormatTests, h26x_flags)
     std::vector<size_t> test_sizes = { 1443, 1501 };
     int rtp_flags = RTP_NO_FLAGS;
     int nal_type = 5;
-    rtp_format_t format = RTP_FORMAT_H264;
+    rtp_format_t format = RTP_FORMAT_H265;
     int test_runs = 10;
 
     for (auto& size : test_sizes)
@@ -81,7 +81,7 @@ TEST(FormatTests, h264_single_nal_unit)
     
     std::cout << "Testing small NAL unit" << std::endl;
     std::vector<size_t> test_sizes = std::vector<size_t>(3);
-    std::iota(test_sizes.begin(), test_sizes.end(), 4);
+    std::iota(test_sizes.begin(), test_sizes.end(), 8);
 
     for (auto& size : test_sizes)
     {
@@ -206,7 +206,7 @@ TEST(FormatTests, h265_single_nal_unit)
 
     std::cout << "Testing small NAL unit" << std::endl;
     std::vector<size_t> test_sizes = std::vector<size_t>(16);
-    std::iota(test_sizes.begin(), test_sizes.end(), 6);
+    std::iota(test_sizes.begin(), test_sizes.end(), 8);
 
     for (auto& size : test_sizes)
     {
@@ -378,7 +378,7 @@ TEST(FormatTests, h266_single_nal_unit)
 
     std::cout << "Testing small NAL unit" << std::endl;
     std::vector<size_t> test_sizes = std::vector<size_t>(16);
-    std::iota(test_sizes.begin(), test_sizes.end(), 6);
+    std::iota(test_sizes.begin(), test_sizes.end(), 8);
 
     for (auto& size : test_sizes)
     {
@@ -567,7 +567,7 @@ TEST(FormatTests, v3c_single_nal_unit)
 
     std::cout << "Testing small NAL unit" << std::endl;
     std::vector<size_t> test_sizes = std::vector<size_t>(3);
-    std::iota(test_sizes.begin(), test_sizes.end(), 6);
+    std::iota(test_sizes.begin(), test_sizes.end(), 8);
 
     for (auto& size : test_sizes)
     {
