@@ -44,6 +44,9 @@ rtp_error_t uvgrtp::zrtp_msg::zrtp_message::send_msg(std::shared_ptr<uvgrtp::soc
 
 void uvgrtp::zrtp_msg::zrtp_message::allocate_frame(size_t frame_size)
 {
+    if (frame_)
+        (void)uvgrtp::frame::dealloc_frame((uvgrtp::frame::zrtp_frame*)frame_);
+
     frame_ = uvgrtp::frame::alloc_zrtp_frame(frame_size);
     len_ = frame_size;
     memset(frame_, 0, frame_size);
@@ -51,6 +54,9 @@ void uvgrtp::zrtp_msg::zrtp_message::allocate_frame(size_t frame_size)
 
 void uvgrtp::zrtp_msg::zrtp_message::allocate_rframe(size_t frame_size)
 {
+    if (rframe_)
+        (void)uvgrtp::frame::dealloc_frame((uvgrtp::frame::zrtp_frame*)rframe_);
+
     rframe_ = uvgrtp::frame::alloc_zrtp_frame(frame_size);
     rlen_ = frame_size;
     memset(rframe_, 0, frame_size);
