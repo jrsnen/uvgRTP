@@ -19,6 +19,15 @@ uvgrtp::formats::media::media(std::shared_ptr<uvgrtp::socket> socket, std::share
 
 uvgrtp::formats::media::~media()
 {
+    // Deallocate any remaining fragmented RTP frames stored in minfo_
+    for (auto &entry : minfo_.frames) {
+        for (auto &frag : entry.second.fragments) {
+            (void)uvgrtp::frame::dealloc_frame(frag.second);
+        }
+        entry.second.fragments.clear();
+    }
+    minfo_.frames.clear();
+
     fqueue_ = nullptr;
 }
 
