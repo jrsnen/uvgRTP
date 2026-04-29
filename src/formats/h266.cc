@@ -52,6 +52,11 @@ uint8_t uvgrtp::formats::h266::get_start_code_range() const
 uvgrtp::formats::NAL_TYPE uvgrtp::formats::h266::get_nal_type(uvgrtp::frame::rtp_frame* frame) const
 {
     // see https://datatracker.ietf.org/doc/html/rfc9328#section-4.3.3
+    // H.266 NAL parsing requires at least 3 bytes
+    if (!frame || frame->payload_len < 3) {
+        return uvgrtp::formats::NAL_TYPE::NT_OTHER;
+    }
+
     uint8_t nal_type = frame->payload[2] & 0x3f;
 
     if (nal_type == H266_IDR_W_RADL)
@@ -70,6 +75,11 @@ uint8_t uvgrtp::formats::h266::get_nal_type(uint8_t* data) const
 
 uvgrtp::formats::FRAG_TYPE uvgrtp::formats::h266::get_fragment_type(uvgrtp::frame::rtp_frame* frame) const
 {
+    // H.266 fragment parsing requires at least 3 bytes
+    if (!frame || frame->payload_len < 3) {
+        return uvgrtp::formats::FRAG_TYPE::FT_INVALID;
+    }
+
     bool first_frag = frame->payload[2] & 0x80;
     bool last_frag = frame->payload[2] & 0x40;
 

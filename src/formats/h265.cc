@@ -51,6 +51,11 @@ uint8_t uvgrtp::formats::h265::get_start_code_range() const
 uvgrtp::formats::NAL_TYPE uvgrtp::formats::h265::get_nal_type(uvgrtp::frame::rtp_frame* frame) const
 {
     // see https://datatracker.ietf.org/doc/html/rfc7798#section-4.4.3
+    // H.265 NAL parsing requires at least 3 bytes (payload[2] used for nal type)
+    if (!frame || frame->payload_len < 3) {
+        return uvgrtp::formats::NAL_TYPE::NT_OTHER;
+    }
+
     switch (frame->payload[2] & 0x3f) {
     case H265_IDR_W_RADL: return uvgrtp::formats::NAL_TYPE::NT_INTRA;
     case H265_TRAIL_R:    return uvgrtp::formats::NAL_TYPE::NT_INTER;
@@ -68,6 +73,11 @@ uint8_t uvgrtp::formats::h265::get_nal_type(uint8_t* data) const
 
 uvgrtp::formats::FRAG_TYPE uvgrtp::formats::h265::get_fragment_type(uvgrtp::frame::rtp_frame* frame) const
 {
+    // H.265 fragment parsing requires at least 3 bytes
+    if (!frame || frame->payload_len < 3) {
+        return uvgrtp::formats::FRAG_TYPE::FT_INVALID;
+    }
+
     bool first_frag = frame->payload[2] & 0x80; // S bit
     bool last_frag = frame->payload[2] & 0x40;  // E bit
 

@@ -48,6 +48,11 @@ uint8_t uvgrtp::formats::h264::get_start_code_range() const
 
 uvgrtp::formats::FRAG_TYPE uvgrtp::formats::h264::get_fragment_type(uvgrtp::frame::rtp_frame* frame) const
 {
+    // H.264 fragment parsing requires at least 2 bytes
+    if (!frame || frame->payload_len < 2) {
+        return uvgrtp::formats::FRAG_TYPE::FT_INVALID;
+    }
+
     bool first_frag = frame->payload[1] & 0x80;
     bool last_frag = frame->payload[1] & 0x40;
 
@@ -75,6 +80,11 @@ uvgrtp::formats::FRAG_TYPE uvgrtp::formats::h264::get_fragment_type(uvgrtp::fram
 uvgrtp::formats::NAL_TYPE uvgrtp::formats::h264::get_nal_type(uvgrtp::frame::rtp_frame* frame) const
 {
     // see https://datatracker.ietf.org/doc/html/rfc6184#section-5.8
+
+    // Need at least two payload bytes to read NAL/FU headers
+    if (!frame || frame->payload_len < 2) {
+        return uvgrtp::formats::NAL_TYPE::NT_OTHER;
+    }
 
     switch (frame->payload[1] & 0x1f) {
     case H264_IDR: return uvgrtp::formats::NAL_TYPE::NT_INTRA;
