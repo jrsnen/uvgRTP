@@ -21,18 +21,18 @@ constexpr int PACKET_INTERVAL_MS = 1000 / FRAME_RATE;
 // TODO: upgrade RTCP tests to use the core API
 #if UVGRTP_EXTENDED_API
 
-void receiver_hook(uvgrtp::frame::rtcp_receiver_report* frame);
-void sender_hook(uvgrtp::frame::rtcp_sender_report* frame);
-void sdes_hook(uvgrtp::frame::rtcp_sdes_packet* frame);
+void receiver_hook(uvgrtp::frame::rtcp_rr* frame);
+void sender_hook(uvgrtp::frame::rtcp_sr* frame);
+void sdes_hook(uvgrtp::frame::rtcp_sdes* frame);
 void app_hook(uvgrtp::frame::rtcp_app_packet* frame);
 void cleanup(uvgrtp::context& ctx, uvgrtp::session* local_session, uvgrtp::session* remote_session,
     uvgrtp::media_stream* send, uvgrtp::media_stream* receive);
 
 // Receiver and sender hooks for socket multiplexing test
-void m_r_hook1(uvgrtp::frame::rtcp_receiver_report* frame);
-void m_r_hook2(uvgrtp::frame::rtcp_receiver_report* frame);
-void m_s_hook1(uvgrtp::frame::rtcp_sender_report* frame);
-void m_s_hook2(uvgrtp::frame::rtcp_sender_report* frame);
+void m_r_hook1(uvgrtp::frame::rtcp_rr* frame);
+void m_r_hook2(uvgrtp::frame::rtcp_rr* frame);
+void m_s_hook1(uvgrtp::frame::rtcp_sr* frame);
+void m_s_hook2(uvgrtp::frame::rtcp_sr* frame);
 
 // these are used to check if enough packets were received at the end of a test
 static int received1;
@@ -438,47 +438,48 @@ TEST(RTCPTests, rtcp_multiplex2)
 }
 
 
-void m_r_hook1(uvgrtp::frame::rtcp_receiver_report* frame)
+void m_r_hook1(uvgrtp::frame::rtcp_rr* frame)
 {
     //Hook for stream Sender1 ssrc 11 
     std::cout << std::endl << "Sender1 received RTCP receiver report from " << frame->ssrc << std::endl;
     EXPECT_EQ(frame->ssrc, 22);
     ++received1;
-    delete frame;
+    uvgrtp::frame::dealloc_rr(frame);
 }
-void m_r_hook2(uvgrtp::frame::rtcp_receiver_report* frame)
+void m_r_hook2(uvgrtp::frame::rtcp_rr* frame)
 {
     //Hook for stream Sender2 ssrc 33 
     std::cout << std::endl << "Sender2 received RTCP receiver report from " << frame->ssrc << std::endl;
     EXPECT_EQ(frame->ssrc, 44);
     ++received2;
-    delete frame;
+    uvgrtp::frame::dealloc_rr(frame);
 }
-void m_s_hook1(uvgrtp::frame::rtcp_sender_report* frame)
+void m_s_hook1(uvgrtp::frame::rtcp_sr* frame)
 {
     //Hook for stream Receiver1 ssrc 22 
     std::cout << std::endl << "Receiver1 received RTCP sender report from " << frame->ssrc << std::endl;
     EXPECT_EQ(frame->ssrc, 11);
     ++received3;
-    delete frame;
+    uvgrtp::frame::dealloc_sr(frame);
 }
-void m_s_hook2(uvgrtp::frame::rtcp_sender_report* frame)
+void m_s_hook2(uvgrtp::frame::rtcp_sr* frame)
 {
     //Hook for stream Receiver2 ssrc 44 
     std::cout << std::endl << "Receiver2 received RTCP sender report from " << frame->ssrc << std::endl;
     EXPECT_EQ(frame->ssrc, 33);
     ++received4;
-    delete frame;
+    uvgrtp::frame::dealloc_sr(frame);
 }
 
 
-void receiver_hook(uvgrtp::frame::rtcp_receiver_report* frame)
+void receiver_hook(uvgrtp::frame::rtcp_rr* frame)
 {
     ++received1;
     std::cout << std::endl << "RTCP receiver report! ----------" << std::endl;
 
-    for (auto& block : frame->report_blocks)
+    for (uint8_t i = 0; i < frame->header.count; ++i)
     {
+        auto& block = frame->report_blocks[i];
         std::cout << "ssrc: " << block.ssrc << std::endl;
         std::cout << "fraction: " << uint32_t(block.fraction) << std::endl;
         std::cout << "lost: " << block.lost << std::endl;
@@ -488,11 +489,10 @@ void receiver_hook(uvgrtp::frame::rtcp_receiver_report* frame)
         std::cout << "dlsr (jiffies): " << block.dlsr << std::endl << std::endl;
     }
 
-    /* RTCP frames can be deallocated using delete */
-    delete frame;
+    uvgrtp::frame::dealloc_rr(frame);
 }
 
-void sender_hook(uvgrtp::frame::rtcp_sender_report* frame)
+void sender_hook(uvgrtp::frame::rtcp_sr* frame)
 {
     ++received2;
     std::cout << std::endl << "RTCP sender report! ----------" << std::endl;
@@ -502,8 +502,9 @@ void sender_hook(uvgrtp::frame::rtcp_sender_report* frame)
     std::cout << "packet count: " << frame->sender_info.pkt_cnt << std::endl;
     std::cout << "byte count: " << frame->sender_info.byte_cnt << std::endl;
 
-    for (auto& block : frame->report_blocks)
+    for (uint8_t i = 0; i < frame->header.count; ++i)
     {
+        auto& block = frame->report_blocks[i];
         std::cout << "ssrc: " << block.ssrc << std::endl;
         std::cout << "fraction: " << uint32_t(block.fraction) << std::endl;
         std::cout << "lost: " << block.lost << std::endl;
@@ -513,27 +514,15 @@ void sender_hook(uvgrtp::frame::rtcp_sender_report* frame)
         std::cout << "dlsr (jiffies): " << block.dlsr << std::endl << std::endl;
     }
 
-    /* RTCP frames can be deallocated using delete */
-    delete frame;
+    uvgrtp::frame::dealloc_sr(frame);
 }
 
-void sdes_hook(uvgrtp::frame::rtcp_sdes_packet* frame)
+void sdes_hook(uvgrtp::frame::rtcp_sdes* frame)
 {
-    std::cout << "Got SDES frame with " << frame->chunks.size() << " chunk" << std::endl;
+    std::cout << "Got SDES frame with " << int(frame->header.count) << " chunk" << std::endl;
 
-    for (auto& chunk : frame->chunks)
-    {
-        for (auto& item : chunk.items)
-        {
-            if (item.data != nullptr)
-            {
-                delete[] item.data;
-            }
-        }
-    }
-
-    /* RTCP frames can be deallocated using delete */
-    delete frame;
+    /* Let core deallocator handle internal memory */
+    uvgrtp::frame::dealloc_sdes(frame);
 }
 
 void app_hook(uvgrtp::frame::rtcp_app_packet* frame)
