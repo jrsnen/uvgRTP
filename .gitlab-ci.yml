@@ -51,7 +51,7 @@ valgrind_tests:
     - make
     - cd test
     - make
-    - valgrind --leak-check=full --error-exitcode=1 ./uvgrtp_test
+    - valgrind --leak-check=full --show-leak-kinds=all --num-callers=40 --error-exitcode=1 ./uvgrtp_test
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
     - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
