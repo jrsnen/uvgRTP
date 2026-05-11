@@ -409,6 +409,14 @@ namespace uvgrtp {
 
         rtp_error_t install_packet_handlers();
 
+        rtp_error_t install_initial_handlers();
+        rtp_error_t configure_rtcp_network();
+
+        /* Initialize components common to init and re-registration when SSRC changes */
+        rtp_error_t init_common_components();
+        void cleanup_ssrc_entries(uint32_t ssrc_to_remove);
+        void apply_mtu(ssize_t mtu);
+
         uint32_t get_default_bandwidth_kbps(rtp_format_t fmt);
 
         bool check_pull_preconditions();
@@ -472,6 +480,13 @@ namespace uvgrtp {
         std::shared_ptr<std::atomic<std::uint32_t>> ssrc_;
         std::shared_ptr<std::atomic<std::uint32_t>> remote_ssrc_;
         bool remote_ssrc_set_;
+
+        /* Remember MTU if user sets it so re-registration can reapply it */
+        ssize_t mtu_size_ = -1;
+
+        /* Flags to detect if ZRTP or user SRTP ctx was already performed */
+        bool zrtp_performed_ = false;
+        bool srtp_ctx_added_ = false;
 
         // Save values associated with context flags, to be returned with get_configuration_value
         // Values are initialized to -2, which means value not set

@@ -432,7 +432,6 @@ rtp_error_t uvgrtp::socket::install_handler(std::shared_ptr<std::atomic<std::uin
 }
 
 rtp_error_t uvgrtp::socket::remove_handler(std::shared_ptr<std::atomic<std::uint32_t>> local_ssrc)
-
 {
     handlers_mutex_.lock();
     vec_handlers_.erase(local_ssrc);

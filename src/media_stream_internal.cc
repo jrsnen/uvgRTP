@@ -32,11 +32,13 @@
 
 #include <cstring>
 
-
+// used to enable multiple media_Streams with same ssrc to have components in common. 
+// Sometimes required because we dont support separate interfaces for sending and receiving
 std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::rtcp>> uvgrtp::media_stream_internal::rtcp_map_;
-std::mutex uvgrtp::media_stream_internal::rtcp_map_mutex_;
 std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtp>> uvgrtp::media_stream_internal::srtp_map_;
 std::unordered_map<uint32_t, std::shared_ptr<uvgrtp::srtcp>> uvgrtp::media_stream_internal::srtcp_map_;
+
+std::mutex uvgrtp::media_stream_internal::rtcp_map_mutex_;
 std::mutex uvgrtp::media_stream_internal::srtp_map_mutex_;
 std::mutex uvgrtp::media_stream_internal::srtcp_map_mutex_;
 
@@ -291,46 +293,7 @@ rtp_error_t uvgrtp::media_stream_internal::free_resources(rtp_error_t ret)
     srtp_ = nullptr;
     srtcp_ = nullptr;
 
-    rtcp_map_mutex_.lock();
-    auto it = rtcp_map_.find(ssrc_->load());
-    if (it != rtcp_map_.end()) {
-        size_t count = it->second.use_count();
-        if (count <= 1) {
-            UVG_LOG_DEBUG("Erasing RTCP map entry for %u (use_count=%zu)", ssrc_->load(), count);
-            rtcp_map_.erase(it);
-        } else {
-            UVG_LOG_DEBUG("Not erasing RTCP map entry for %u, other owners remain (use_count=%zu)", ssrc_->load(), count);
-        }
-    }
-    rtcp_map_mutex_.unlock();
-
-    {
-        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
-        auto it2 = srtp_map_.find(ssrc_->load());
-        if (it2 != srtp_map_.end()) {
-            size_t count = it2->second.use_count();
-            if (count <= 1) {
-                UVG_LOG_DEBUG("Erasing SRTP map entry for %u (use_count=%zu)", ssrc_->load(), count);
-                srtp_map_.erase(it2);
-            } else {
-                UVG_LOG_DEBUG("Not erasing SRTP map entry for %u, other owners remain (use_count=%zu)", ssrc_->load(), count);
-            }
-        }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
-        auto it3 = srtcp_map_.find(ssrc_->load());
-        if (it3 != srtcp_map_.end()) {
-            size_t count = it3->second.use_count();
-            if (count <= 1) {
-                UVG_LOG_DEBUG("Erasing SRTCP map entry for %u (use_count=%zu)", ssrc_->load(), count);
-                srtcp_map_.erase(it3);
-            } else {
-                UVG_LOG_DEBUG("Not erasing SRTCP map entry for %u, other owners remain (use_count=%zu)", ssrc_->load(), count);
-            }
-        }
-    }
+    cleanup_ssrc_entries(ssrc_->load());
     //reception_flow_ = nullptr;
     holepuncher_ = nullptr;
     media_ = nullptr;
@@ -386,58 +349,15 @@ rtp_error_t uvgrtp::media_stream_internal::init(std::shared_ptr<uvgrtp::zrtp> zr
         return RTP_GENERIC_ERROR;
     }
 
-    rtp_ = std::make_shared<uvgrtp::rtp>(fmt_, ssrc_, ipv6_);
-
-    {
-        std::lock_guard<std::mutex> lock(rtcp_map_mutex_);
-        // we are the only friend class for rtcp to call internal constructor
-        if (rtcp_map_.find(ssrc_->load()) == rtcp_map_.end()) {
-            rtcp_ = std::shared_ptr<uvgrtp::rtcp>(new uvgrtp::rtcp(rtp_, ssrc_, remote_ssrc_, cname_, sfp_, rce_flags_));
-            rtcp_map_[ssrc_->load()] = rtcp_;
-        }
-        else
-        {
-            rtcp_ = rtcp_map_[ssrc_->load()];
-        }
+    rtp_error_t ret = init_common_components();
+    if (ret != RTP_OK) {
+        UVG_LOG_ERROR("Failed to initialize common components");
+        return free_resources(ret);
     }
-
-    {
-        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
-        if (srtp_map_.find(ssrc_->load()) == srtp_map_.end()) {
-            srtp_ = std::make_shared<uvgrtp::srtp>(rce_flags_);
-            srtp_map_[ssrc_->load()] = srtp_;
-        }
-        else {
-            srtp_ = srtp_map_[ssrc_->load()];
-        }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
-        if (srtcp_map_.find(ssrc_->load()) == srtcp_map_.end()) {
-            srtcp_ = std::make_shared<uvgrtp::srtcp>();
-            srtcp_map_[ssrc_->load()] = srtcp_;
-        }
-        else {
-            srtcp_ = srtcp_map_[ssrc_->load()];
-        }
-    }
-
-    socket_->install_handler(ssrc_, rtcp_->pimpl_, rtcp_->pimpl_->send_packet_handler_vec);
 
     /* If we are using ZRTP, we only install the ZRTP handler first. Rest of the handlers are installed after ZRTP is
        finished. If ZRTP is not enabled, we can install all the required handlers now */
-    if ((rce_flags_ & RCE_ZRTP_DIFFIE_HELLMAN_MODE || rce_flags_ & RCE_ZRTP_MULTISTREAM_MODE
-        || rce_flags_ & RCE_SRTP_KMNGMNT_ZRTP) && zrtp_) {
-        reception_flow_->install_handler(
-            3, remote_ssrc_,
-            std::bind(&uvgrtp::zrtp::packet_handler, zrtp_, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-                std::placeholders::_4, std::placeholders::_5),
-            nullptr);
-    }
-    else {
-        install_packet_handlers();
-    }
+    install_initial_handlers();
     /* If we are using SRTP user keys, reception is started after SRTP is initalised in add_srtp_ctx() */
     if (rce_flags_ & RCE_SRTP_KMNGMNT_USER) {
         return RTP_OK;
@@ -509,6 +429,9 @@ rtp_error_t uvgrtp::media_stream_internal::start_zrtp()
     }
     zrtp_->unlock_zrtp();
 
+    /* Mark that ZRTP has been performed for this stream */
+    zrtp_performed_ = true;
+
     install_packet_handlers();
 
     return RTP_OK;
@@ -531,11 +454,13 @@ rtp_error_t uvgrtp::media_stream_internal::add_srtp_ctx(uint8_t* key, uint8_t* s
         return free_resources(ret);
     }
 
-
     if ((ret = srtcp_->init(SRTCP, rce_flags_, key, key, salt, salt)) != RTP_OK) {
         UVG_LOG_WARN("Failed to initialize SRTCP for media stream!");
         return free_resources(ret);
     }
+
+    /* Mark that SRTP user context has been added so re-registration is disallowed */
+    srtp_ctx_added_ = true;
 
     return start_components();
 }
@@ -549,48 +474,8 @@ rtp_error_t uvgrtp::media_stream_internal::start_components()
         holepuncher_->start();
     }
 
-    if (rce_flags_ & RCE_RTCP) {
-
-        if (remote_address_ == "" ||
-            src_port_ == 0 ||
-            dst_port_ == 0)
-        {
-            UVG_LOG_ERROR("Using RTCP requires setting at least remote address, local port and remote port");
-        }
-        else
-        {
-            if (!(rce_flags_ & RCE_RTCP_MUX)) {
-                rtcp_->pimpl_->set_network_addresses(local_address_, remote_address_, src_port_ + 1, dst_port_ + 1, ipv6_);
-            }
-            else {
-                rtcp_->pimpl_->set_network_addresses(local_address_, remote_address_, src_port_, dst_port_, ipv6_);
-                rtcp_->pimpl_->set_socket(socket_);
-            }
-            rtcp_->pimpl_->add_initial_participant(rtp_->get_clock_rate());
-            bandwidth_ = get_default_bandwidth_kbps(fmt_);
-            rtcp_->pimpl_->set_session_bandwidth(bandwidth_);
-
-            uint16_t rtcp_port = src_port_ + 1;
-            std::shared_ptr<uvgrtp::socket> rtcp_socket;
-            std::shared_ptr<uvgrtp::rtcp_reader> rtcp_reader;
-
-            if (!(rce_flags_ & RCE_RTCP_MUX)) {
-
-                /* If RTCP is not multiplexed with RTP, configure the socket for RTCP:
-                1. Fetch the socket for RTCP
-                2. Get the RTCP reader from socketfactory. This was created automatically with the socket (type = 1)
-                3. In RTCP reader, map our RTCP object to the REMOTE ssrc of this stream. If we are not doing
-                   any socket multiplexing, it will be 0 by default */
-
-                rtcp_socket = sfp_->get_socket_ptr(1, rtcp_port, rce_flags_);
-                rtcp_->pimpl_->set_socket(rtcp_socket);
-                rtcp_reader = sfp_->get_rtcp_reader(rtcp_port);
-                rtcp_reader->map_ssrc_to_rtcp(remote_ssrc_, rtcp_->pimpl_);
-                rtcp_reader->set_socket(rtcp_socket);
-            }
-            rtcp_->pimpl_->start();
-        }
-    }
+    // Configure RTCP networking/reader for this stream
+    (void)configure_rtcp_network();
 
     if (rce_flags_ & RCE_SRTP_AUTHENTICATE_RTP) {
         if (ipv6_) {
@@ -960,13 +845,9 @@ rtp_error_t uvgrtp::media_stream_internal::configure_ctx(int rcc_flag, ssize_t v
                 value, UINT16_MAX);
             return RTP_INVALID_VALUE;
         }
-
-        rtp_->set_payload_size(value - hdr);
-
-        // auth tag is always included with SRTP and RTCP has a header for each packet within a compound frame
-        rtcp_->pimpl_->set_payload_size(value - (IPV4_HDR_SIZE + UDP_HDR_SIZE));
-
-        reception_flow_->set_payload_size(value - (IPV4_HDR_SIZE + UDP_HDR_SIZE)); // largest packet we can get from socket
+        apply_mtu(value);
+        // remember mtu so re-registration can reapply it
+        mtu_size_ = value;
         break;
     }
     case RCC_FPS_NUMERATOR: {
@@ -1015,7 +896,51 @@ rtp_error_t uvgrtp::media_stream_internal::configure_ctx(int rcc_flag, ssize_t v
         if (value <= 0 || value > (ssize_t)UINT32_MAX)
             return RTP_INVALID_VALUE;
 
-        *ssrc_ = (uint32_t)value;
+        uint32_t new_ssrc = (uint32_t)value;
+        uint32_t old_ssrc = ssrc_.get()->load();
+
+        if (old_ssrc == new_ssrc)
+            break;
+
+        if (zrtp_performed_ || srtp_ctx_added_) {
+            UVG_LOG_ERROR("Cannot change SSRC after ZRTP or SRTP user context has been established");
+            return RTP_GENERIC_ERROR;
+        }
+
+        // Remove all mappings and handlers associated with the old SSRC
+        cleanup_ssrc_entries(old_ssrc);
+
+        // Set new SSRC value
+        *ssrc_ = new_ssrc;
+
+        // Initialize components (rtp/rtcp/srtp/srtcp) under the new SSRC
+        ret = init_common_components();
+        if (ret != RTP_OK) {
+            UVG_LOG_ERROR("Failed to initialize components after setting SSRC");
+            return free_resources(ret);
+        }
+
+        // Reapply MTU and bandwidth settings so behavior doesn't depend on call order
+        apply_mtu(mtu_size_);
+
+        if (bandwidth_ > 0 && rtcp_) {
+            rtcp_->pimpl_->set_session_bandwidth(bandwidth_);
+        }
+
+        if (media_) {
+            media_ = nullptr;
+            if (create_media(fmt_) != RTP_OK) {
+                UVG_LOG_ERROR("Failed to recreate media after SSRC change");
+                return free_resources(RTP_MEMORY_ERROR);
+            }
+        }
+
+        // Install ZRTP handler or regular packet handlers
+        install_initial_handlers();
+
+        /* Ensure RTCP networking/reader is configured for the new SSRC */
+        (void)configure_rtcp_network();
+
         break;
     }
     case RCC_REMOTE_SSRC: {
@@ -1090,7 +1015,7 @@ int uvgrtp::media_stream_internal::get_configuration_value(int rcc_flag)
         return (int)rtp_->get_clock_rate();
     }
     case RCC_MTU_SIZE: {
-        return (int)rtp_->get_payload_size();
+        return (int)mtu_size_;
     }
     case RCC_FPS_NUMERATOR: {
         return (int)fps_numerator_;
@@ -1122,6 +1047,183 @@ int uvgrtp::media_stream_internal::get_configuration_value(int rcc_flag)
 uint32_t uvgrtp::media_stream_internal::get_key() const
 {
     return key_;
+}
+
+rtp_error_t uvgrtp::media_stream_internal::init_common_components()
+{
+    if (!reception_flow_) {
+        UVG_LOG_ERROR("Reception flow not initialized");
+        return RTP_GENERIC_ERROR;
+    }
+
+    rtp_ = std::make_shared<uvgrtp::rtp>(fmt_, ssrc_, ipv6_);
+
+    {
+        std::lock_guard<std::mutex> lock(rtcp_map_mutex_);
+        if (rtcp_map_.find(ssrc_->load()) == rtcp_map_.end()) {
+            rtcp_ = std::shared_ptr<uvgrtp::rtcp>(new uvgrtp::rtcp(rtp_, ssrc_, remote_ssrc_, cname_, sfp_, rce_flags_));
+            rtcp_map_[ssrc_->load()] = rtcp_;
+        }
+        else {
+            rtcp_ = rtcp_map_[ssrc_->load()];
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
+        if (srtp_map_.find(ssrc_->load()) == srtp_map_.end()) {
+            srtp_ = std::make_shared<uvgrtp::srtp>(rce_flags_);
+            srtp_map_[ssrc_->load()] = srtp_;
+        }
+        else {
+            srtp_ = srtp_map_[ssrc_->load()];
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
+        if (srtcp_map_.find(ssrc_->load()) == srtcp_map_.end()) {
+            srtcp_ = std::make_shared<uvgrtp::srtcp>();
+            srtcp_map_[ssrc_->load()] = srtcp_;
+        }
+        else {
+            srtcp_ = srtcp_map_[ssrc_->load()];
+        }
+    }
+
+    if (socket_ && rtcp_) {
+        socket_->install_handler(ssrc_, rtcp_->pimpl_, rtcp_->pimpl_->send_packet_handler_vec);
+    }
+
+    return RTP_OK;
+}
+
+void uvgrtp::media_stream_internal::apply_mtu(ssize_t mtu)
+{
+    if (mtu <= 0)
+        return;
+
+    ssize_t hdr = IPV4_HDR_SIZE + UDP_HDR_SIZE + RTP_HDR_SIZE;
+    if (rce_flags_ & RCE_SRTP_AUTHENTICATE_RTP)
+        hdr += UVG_AUTH_TAG_LENGTH;
+
+    if (mtu > hdr && mtu <= UINT16_MAX) {
+        rtp_->set_payload_size(mtu - hdr);
+        if (rtcp_ && rtcp_->pimpl_)
+            rtcp_->pimpl_->set_payload_size(mtu - (IPV4_HDR_SIZE + UDP_HDR_SIZE));
+        if (reception_flow_)
+            reception_flow_->set_payload_size(mtu - (IPV4_HDR_SIZE + UDP_HDR_SIZE));
+    }
+}
+
+rtp_error_t uvgrtp::media_stream_internal::install_initial_handlers()
+{
+    if ((rce_flags_ & RCE_ZRTP_DIFFIE_HELLMAN_MODE || rce_flags_ & RCE_ZRTP_MULTISTREAM_MODE
+        || rce_flags_ & RCE_SRTP_KMNGMNT_ZRTP) && zrtp_) {
+        reception_flow_->install_handler(
+            3, remote_ssrc_,
+            std::bind(&uvgrtp::zrtp::packet_handler, zrtp_, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+                std::placeholders::_4, std::placeholders::_5),
+            nullptr);
+        return RTP_OK;
+    }
+
+    return install_packet_handlers();
+}
+
+rtp_error_t uvgrtp::media_stream_internal::configure_rtcp_network()
+{
+    if (!(rce_flags_ & RCE_RTCP) || !rtcp_)
+        return RTP_OK;
+
+    if (remote_address_ == "" || src_port_ == 0 || dst_port_ == 0) {
+        UVG_LOG_ERROR("Using RTCP requires setting at least remote address, local port and remote port");
+        return RTP_OK;
+    }
+
+    if (!(rce_flags_ & RCE_RTCP_MUX)) {
+        rtcp_->pimpl_->set_network_addresses(local_address_, remote_address_, src_port_ + 1, dst_port_ + 1, ipv6_);
+    }
+    else {
+        rtcp_->pimpl_->set_network_addresses(local_address_, remote_address_, src_port_, dst_port_, ipv6_);
+        rtcp_->pimpl_->set_socket(socket_);
+    }
+
+    rtcp_->pimpl_->add_initial_participant(rtp_->get_clock_rate());
+
+    if (bandwidth_ == 0)
+        bandwidth_ = get_default_bandwidth_kbps(fmt_);
+    rtcp_->pimpl_->set_session_bandwidth(bandwidth_);
+
+    uint16_t rtcp_port = src_port_ + 1;
+    std::shared_ptr<uvgrtp::socket> rtcp_socket;
+    std::shared_ptr<uvgrtp::rtcp_reader> rtcp_reader;
+
+    if (!(rce_flags_ & RCE_RTCP_MUX)) {
+        rtcp_socket = sfp_->get_socket_ptr(1, rtcp_port, rce_flags_);
+        rtcp_->pimpl_->set_socket(rtcp_socket);
+        rtcp_reader = sfp_->get_rtcp_reader(rtcp_port);
+        rtcp_reader->map_ssrc_to_rtcp(remote_ssrc_, rtcp_->pimpl_);
+        rtcp_reader->set_socket(rtcp_socket);
+    }
+
+    rtcp_->pimpl_->start();
+
+    return RTP_OK;
+}
+
+void uvgrtp::media_stream_internal::cleanup_ssrc_entries(uint32_t ssrc_to_remove)
+{
+    // Erase RTCP mapping if this object owns it
+    {
+        std::lock_guard<std::mutex> lock(rtcp_map_mutex_);
+        auto it = rtcp_map_.find(ssrc_to_remove);
+        if (it != rtcp_map_.end()) {
+            size_t count = it->second.use_count();
+            if (count <= 1) {
+                UVG_LOG_DEBUG("Erasing RTCP map entry for %u (use_count=%zu)", ssrc_to_remove, count);
+                rtcp_map_.erase(it);
+            } else {
+                UVG_LOG_DEBUG("Not erasing RTCP map entry for %u, other owners remain (use_count=%zu)", ssrc_to_remove, count);
+            }
+        }
+    }
+
+    // Erase SRTP mapping if present
+    {
+        std::lock_guard<std::mutex> lock(srtp_map_mutex_);
+        auto it2 = srtp_map_.find(ssrc_to_remove);
+        if (it2 != srtp_map_.end()) {
+            size_t count = it2->second.use_count();
+            if (count <= 1) {
+                UVG_LOG_DEBUG("Erasing SRTP map entry for %u (use_count=%zu)", ssrc_to_remove, count);
+                srtp_map_.erase(it2);
+            } else {
+                UVG_LOG_DEBUG("Not erasing SRTP map entry for %u, other owners remain (use_count=%zu)", ssrc_to_remove, count);
+            }
+        }
+    }
+
+    // Erase SRTCP mapping if present
+    {
+        std::lock_guard<std::mutex> lock(srtcp_map_mutex_);
+        auto it3 = srtcp_map_.find(ssrc_to_remove);
+        if (it3 != srtcp_map_.end()) {
+            size_t count = it3->second.use_count();
+            if (count <= 1) {
+                UVG_LOG_DEBUG("Erasing SRTCP map entry for %u (use_count=%zu)", ssrc_to_remove, count);
+                srtcp_map_.erase(it3);
+            } else {
+                UVG_LOG_DEBUG("Not erasing SRTCP map entry for %u, other owners remain (use_count=%zu)", ssrc_to_remove, count);
+            }
+        }
+    }
+
+    // Remove socket handler associated with this ssrc
+    if (socket_) {
+        auto old_ssrc_ptr = std::make_shared<std::atomic<std::uint32_t>>(ssrc_to_remove);
+        socket_->remove_handler(old_ssrc_ptr);
+    }
 }
 
 uvgrtp::rtcp* uvgrtp::media_stream_internal::get_rtcp()
